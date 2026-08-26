@@ -1,6 +1,6 @@
 {
   "name": "obsidian-sync-skill",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Obsidian 笔记单向同步到飞书/ima/Notion 的 Agent Skill（Claude Code / Codex / OpenCode / Pi / Hermes 等）",
   "license": "MIT",
   "keywords": [
