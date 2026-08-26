@@ -211,6 +211,10 @@ async function appendBlocks(id, blocks, opts = {}) {
 async function archivePage(id, opts = {}) {
   return api('PATCH', `/pages/${id}`, { in_trash: true }, opts);
 }
+async function deleteBlock(id, opts = {}) {
+  // 删除页面的子块（覆盖更新内容用）；不能用于删除 child_page 本身
+  return api('DELETE', `/blocks/${id}`, null, opts);
+}
 
 // ---------- 文件上传（Direct Upload：create → multipart send → attach） ----------
 function mimeFromExt(ext) {
@@ -528,7 +532,8 @@ const USAGE = `notion_api.cjs <子命令> [参数] [--proxy socks5://host:port]
   create-page --parent <page_id> --title <t>  新建子页面
   import-md --parent <page_id> --title <t> --file <md>   新建页面并导入 markdown
   upload-file --parent <page_id> --file <本地路径>        上传文件返回 file_upload id
-  archive-page --id <page_id>                 归档（移入回收站）页面`;
+  archive-page --id <page_id>                 归档（移入回收站）页面
+  delete-block --id <block_id>                删除一个子块（覆盖更新内容用）`;
 
 async function main() {
   const args = process.argv.slice(2);
@@ -597,6 +602,10 @@ async function main() {
       const id = argValue(args, '--id'); if (!id) throw new Error('--id 必填');
       return print(await archivePage(id, opts));
     }
+    case 'delete-block': {
+      const id = argValue(args, '--id'); if (!id) throw new Error('--id 必填');
+      return print(await deleteBlock(id, opts));
+    }
     default:
       throw new Error('未知子命令: ' + (cmd || '(空)') + '\n' + USAGE);
   }
@@ -612,6 +621,6 @@ if (require.main === module) {
 module.exports = {
   API_BASE, NOTION_VERSION,
   loadToken, parseProxy, rawRequest, requestJSON, api, isError,
-  whoami, search, getPage, getDatabase, listChildren, createPage, appendBlocks, archivePage, uploadFile,
+  whoami, search, getPage, getDatabase, listChildren, createPage, appendBlocks, archivePage, deleteBlock, uploadFile,
   markdownToBlocks, resolveImages, parseInline, mimeFromExt,
 };

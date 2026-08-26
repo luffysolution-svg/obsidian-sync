@@ -83,27 +83,31 @@ lark-cli doctor / auth status / whoami                          # 检测 / 认�
 lark-cli wiki +space-list                                        # 知识库空间
 lark-cli drive +import --file x.md --type docx --folder-token <t> # 导入
 lark-cli docs +media-insert --file img.png --doc <url> --type image # 插图片
+lark-cli docs +update --doc <url> --command overwrite --doc-format markdown --content <md> # 覆盖更新已存在文档（保留链接）
 
 # ima
 node scripts/ima_setup.cjs                                       # 凭证检测 / 配置
 node scripts/ima_api.cjs list-kbs                                # 知识库列表
 node scripts/ima_api.cjs import-file --kb <id> --file x.md        # 单文件导入
-node scripts/sync_vault_to_ima.cjs --kb <id> --dir <目录>         # 一键目录同步
+node scripts/sync_vault_to_ima.cjs --kb <id> --dir <目录>         # 一键目录同步（同名文件夹自动复用）
+node scripts/sync_vault_to_ima.cjs --kb <id> --dir <目录> --incremental # 增量：已存在的文件跳过（不产生重复条目）
 
 # Notion（国内加 --proxy socks5://127.0.0.1:10808）
 node scripts/notion_setup.cjs                                    # 凭证检测 / 配置
 node scripts/notion_api.cjs whoami                               # 验证 token / 看工作区
 node scripts/notion_api.cjs search --type page                    # 页面列表
 node scripts/notion_api.cjs import-md --parent <id> --file x.md   # 单篇导入
-node scripts/sync_vault_to_notion.cjs --page <id> --dir <目录>    # 一键目录同步
+node scripts/sync_vault_to_notion.cjs --page <id> --dir <目录>    # 一键目录同步（幂等：同名页面覆盖更新，不产生重复页）
 ```
 
 ## 边界与限制
 
 - **飞书双向**：`drive +sync` 只同步原生文件、跳过在线 docx，本 skill 只做单向。
+- **飞书覆盖更新**：`docs +update --command overwrite` 整文重写（保留文档链接），但会丢失图片/评论，本地图片需重新 `docs +media-insert`。
+- **ima 增量同步**：`--incremental` 按文件名查重跳过已存在条目；**ima 无更新内容/删除端点，内容变更无法覆盖**，需在 ima 客户端手动删旧条目后重新导入。
 - **ima 无删除端点**：误建 / 测试产物只能在 ima 客户端手动删。
 - **ima 图片不内嵌**：作为独立知识条目（media_type 9），不保留正文内联位置。
-- **Notion 无覆盖写**：API 无法按标题幂等更新，重复同步会新建同名页；同步前先确认落点干净。
+- **Notion 幂等覆盖更新**：同名页面直接覆盖更新内容（保留页面 URL，不产生重复页）；附件/孤儿附件不重复上传（需要时加 `--with-orphans`）。
 - **Notion 是国内被墙服务**：需代理（`NOTION_PROXY` 或 `--proxy`），且 integration 必须先连接目标页面。
 
 ## 参考

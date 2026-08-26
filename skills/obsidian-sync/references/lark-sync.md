@@ -90,6 +90,24 @@ foreach ($f in $files) {
 
 要点（已实测）：中文文件名 / 空格 / 全角符号经 `lark-cli.ps1` shim 传参均正常；同名文件夹串行导入 0 失败。
 
+### 3.5 增量同步与覆盖更新（v1.4.0+）
+
+**增量（跳过已存在，避免重复导入）**：导入前先列目标文件夹，取现有文件名集合，同名文件跳过：
+
+```powershell
+lark-cli drive files list --folder-token <目标folder_token> --format json   # 拿 {name, token} 集合
+# 本地 md 文件名已在集合中 → 跳过导入，改为「覆盖更新」（见下）
+```
+
+**覆盖更新（保留文档链接）**：已存在的 docx 整文重写：
+
+```powershell
+$content = Get-Content "<相对路径.md>" -Raw
+lark-cli docs +update --doc "<docx url>" --command overwrite --doc-format markdown --content $content --as user
+```
+
+⚠️ `overwrite` 会清空文档后重写，**丢失图片与评论**；本地图片需重新 `docs +media-insert`。备选方案：`drive +delete` 删旧 + 重新 `+import`（会换新链接）。已实测覆盖更新成功、链接不变。
+
 ## 4. 图片与附件
 
 见 `references/attachments.md`。要点（实测）：
@@ -117,5 +135,6 @@ lark-cli docs +fetch --doc "<docx url 或 token>"
 ## 7. 已知限制
 
 - **双向同步**：`drive +sync` 只同步 `type=file` 原生文件，**跳过在线 docx 与快捷方式**；故「Obsidian↔飞书 docx 双向」无官方现成方案，本 skill 只做单向。
+- **覆盖更新**：`docs +update --command overwrite` 会丢失图片/评论（文档链接保留）；本地图片需重新插入。
 - **附件内嵌**：非图片附件上传后是独立文件/文档块，不保留正文内嵌关系。
 - **并发冲突**：报 `232140101 / 232140100 / 233523001` 时改串行 + 间隔几秒重试，最多 3 次。

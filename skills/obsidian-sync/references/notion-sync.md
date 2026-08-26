@@ -102,7 +102,7 @@ node scripts/notion_api.cjs children --id <根页_id>      # 看根页下是否�
 node scripts/notion_api.cjs children --id <md页_id>      # 看正文块是否就位
 ```
 
-核对页面树与预期目录一致；缺的列出来重跑（重复运行会新建同名页，建议重新换落点或手动删旧页）。
+核对页面树与预期目录一致；缺的列出来重跑（脚本幂等：同名页面覆盖更新，不会新建同名页）。
 
 ## 5. 回传
 
@@ -116,7 +116,7 @@ Notion 有公开链接：`createPage` 返回的 `url`（`https://www.notion.so/<
 - `status:403` → integration 没连接目标页面；让用户在页面「… → Connections」里添加该 integration。
 - `status:429` → 触发限流（3 req/s），脚本已带退避重试；仍频繁则降低并发、串行。
 - 文件上传 403/超时 → 确认代理可达 `api.notion.com`（`/v1/file_uploads` 同域，无需额外放行）。上传分两步：`POST /v1/file_uploads` 建对象 → `POST .../send`（`multipart/form-data`，文件在 `file` 字段）；不要改成 PUT 原始字节。
-- **无覆盖写**：Notion API 无法「按标题幂等更新」，重复同步会新增同名页。同步前先确认落点干净。
+- **幂等覆盖更新（v1.4.0+）**：`sync_vault_to_notion.cjs` 默认「同名页面存在则覆盖更新内容」（按标题找子页面 → 清空旧子块 → 重填，保留页面 URL），重复运行不产生重复页；本地笔记更新后重跑即可同步。查找子页面优先列父页子块（强一致），搜索索引延迟时不会误判。
 - **归档/删除**：子页面可用 `PATCH /pages/{id} {in_trash:true}` 归档（`archive-page` 子命令）；**workspace 级顶层页面 API 不支持归档/删除**，只能进 Notion 客户端手动删。脚本同步时建议把根页建在某个普通页面下，便于整树归档。
 - 图片若为超大文件（`single_part` 上限 20MB）→ 提示改外链或压缩；更大文件走 `multi_part`。
 

@@ -188,6 +188,14 @@ async function importFile({ kb, folder, file, mediaType }) {
   return { ok: isOk(ak), media_id: mediaId, title: name, add_knowledge: ak };
 }
 
+// ---------- 查重（增量同步用） ----------
+async function checkNames({ kb, folder, names }) {
+  const params = names.map((n) => ({ name: n, media_type: mediaTypeFromExt(path.extname(n)) }));
+  const body = { params, knowledge_base_id: kb };
+  if (folder) body.folder_id = folder;
+  return postJson(`${KB}/check_repeated_names`, body);
+}
+
 // ---------- CLI ----------
 function argValue(args, flag) {
   const i = args.indexOf(flag);
@@ -296,6 +304,7 @@ module.exports = {
   KB,
   postJson,
   importFile,
+  checkNames,
   mediaTypeFromExt,
   contentTypeFromExt,
   isOk,

@@ -4,14 +4,14 @@
  * sync_vault_to_notion.cjs — 把本地目录（含子目录）单向同步进 Notion，保留目录层级。
  *
  * 用法：
- *   node sync_vault_to_notion.cjs --page <page_id> --dir <本地目录> [--title <根页标题>] [--dry-run] [--proxy socks5://host:port]
+ *   node sync_vault_to_notion.cjs --page <page_id> --dir <本地目录> [--title <根页标题>] [--dry-run] [--with-orphans] [--proxy socks5://host:port]
  *
  * 说明：
  *   - 依赖同目录 notion_api.cjs（自动加载 Notion token，见 env-and-auth.md）。
  *   - 模型：目录 → 页面；.md → 子页面（正文 = markdown 转 blocks）；引用到的图片/附件 → 内联 image/file 块（自动上传）。
- *   - 未被任何 md 引用的「孤儿附件」会以 file 块追加到其所在目录页的「附件」分区（除非 --skip-orphans）。
- *   - 两阶段：先建目录/页面树（记录 相对路径→page 映射，供 wikilink 互链），再逐 md 转 blocks 填充。
- *   - Notion 无「覆盖写」：重复运行会再次新建同名页面。建议先在干净落点跑一次。
+ *   - 幂等同步（默认）：同名页面已存在则【覆盖更新内容】（清空旧子块后重填，保留页面 URL），不存在则新建；
+ *     重复运行不会产生重复页面，本地笔记更新后重跑即可同步过去。
+ *   - 未被任何 md 引用的「孤儿附件」只在页面新建时或显式 --with-orphans 时上传（避免重复堆积）。
  */
 
 const fs = require('fs');
@@ -45,6 +45,56 @@ async function withRetry(fn, label, retries = 4) {
 }
 
 function isErr(r) { return r.data && r.data.object === 'error'; }
+function titleOf(page) {
+  try { return page.properties.title.title[0].plain_text; } catch { return ''; }
+}
+
+// 在指定父页面下按标题精确查找子页面（不存在返回 null）
+// 优先列父页子块（强一致，无索引延迟）；列失败时兜底 /search（索引可能延迟）
+async function findChildByTitle(parentId, title, opts) {
+  const want = String(title).trim();
+  try {
+    const children = await listAllChildren(parentId, opts);
+    for (const b of children) {
+      if (b.type === 'child_page' && ((b.child_page && b.child_page.title) || '').trim() === want) {
+        return { id: b.id, url: 'https://www.notion.so/' + b.id.replace(/-/g, '') };
+      }
+    }
+  } catch (e) { /* 列子块失败，走 search 兜底 */ }
+  const r = await withRetry(() => N.search({ query: title, page_size: 100, filter: { value: 'page', property: 'object' } }, opts), '搜索页面 ' + title);
+  if (isErr(r)) return null;
+  for (const p of (r.data.results || [])) {
+    if (p.parent && p.parent.type === 'page_id' && p.parent.page_id === parentId) {
+      if ((titleOf(p) || '').trim() === want) return p;
+    }
+  }
+  return null;
+}
+
+// 分页列出页面全部子块
+async function listAllChildren(id, opts) {
+  const all = [];
+  let cursor = undefined;
+  do {
+    const q = cursor ? `?page_size=100&start_cursor=${encodeURIComponent(cursor)}` : '?page_size=100';
+    const r = await withRetry(() => N.api('GET', `/blocks/${id}/children${q}`, null, opts), '列子块 ' + id);
+    if (isErr(r)) throw new Error('列子块失败: ' + JSON.stringify(r.data));
+    all.push(...(r.data.results || []));
+    cursor = r.data.has_more ? r.data.next_cursor : undefined;
+  } while (cursor);
+  return all;
+}
+
+// 清空页面内容（删除全部子块；仅用于 md 页，不碰 child_page）
+async function clearChildren(pageId, opts) {
+  const blocks = await listAllChildren(pageId, opts);
+  for (const b of blocks) {
+    if (b.type === 'child_page' || b.type === 'child_database') continue; // 安全兜底：绝不删子页面
+    const d = await withRetry(() => N.deleteBlock(b.id, opts), '删块 ' + b.id);
+    if (isErr(d)) console.error(`删块失败 ${b.id}: ${JSON.stringify(d.data)}`);
+  }
+  return blocks.length;
+}
 
 async function main() {
   const args = process.argv.slice(2);
@@ -52,12 +102,12 @@ async function main() {
   const dir = argValue(args, '--dir');
   const rootTitle = argValue(args, '--title');
   const dryRun = args.includes('--dry-run');
-  const skipOrphans = args.includes('--skip-orphans');
+  const withOrphans = args.includes('--with-orphans');
   const proxy = argValue(args, '--proxy');
   const opts = proxy ? { proxy } : {};
 
   if (!landingPage || !dir) {
-    console.error('用法: node sync_vault_to_notion.cjs --page <page_id> --dir <本地目录> [--title <根页标题>] [--dry-run] [--proxy socks5://host:port] [--skip-orphans]');
+    console.error('用法: node sync_vault_to_notion.cjs --page <page_id> --dir <本地目录> [--title <根页标题>] [--dry-run] [--with-orphans] [--proxy socks5://host:port]');
     process.exit(1);
   }
   const rootDir = path.resolve(dir);
@@ -81,19 +131,30 @@ async function main() {
   // 相对路径统一用 / 分隔
   const rel = (p) => path.relative(rootDir, p).split(path.sep).join('/');
 
-  // 2. 阶段一：建页面树（目录页 + md 页），记录 relpath -> { id, url }
+  // 2. 阶段一：建/复用页面树（目录页 + md 页），记录 relpath -> { id, url }
   const pageMap = new Map(); // relpath(去 .md) -> {id,url}
   const dirPageMap = new Map(); // 目录 relpath(或 '.' 表示根) -> pageId
-  const rootPageId = '__root__';
+  const created = new Set(); // 本次新建的页面 id（用于孤儿附件判断）
+  let createdCount = 0, updatedCount = 0, reusedCount = 0;
 
+  // 根页：落点下同名则复用
   if (dryRun) {
     console.log(`[dry-run] 根页「${rootName}」 -> 挂到 ${landingPage}`);
   } else {
-    const rr = await withRetry(() => N.createPage({ type: 'page_id', id: landingPage }, rootName, opts), '建根页');
-    if (isErr(rr)) throw new Error('建根页失败: ' + JSON.stringify(rr.data));
-    dirPageMap.set('.', rr.data.id);
-    pageMap.set('.', { id: rr.data.id, url: rr.data.url });
-    console.log(`根页「${rootName}」 -> ${rr.data.id}`);
+    const existingRoot = await findChildByTitle(landingPage, rootName, opts);
+    if (existingRoot) {
+      dirPageMap.set('.', existingRoot.id);
+      pageMap.set('.', { id: existingRoot.id, url: existingRoot.url });
+      reusedCount++;
+      console.log(`复用根页「${rootName}」 -> ${existingRoot.id}`);
+    } else {
+      const rr = await withRetry(() => N.createPage({ type: 'page_id', id: landingPage }, rootName, opts), '建根页');
+      if (isErr(rr)) throw new Error('建根页失败: ' + JSON.stringify(rr.data));
+      dirPageMap.set('.', rr.data.id);
+      pageMap.set('.', { id: rr.data.id, url: rr.data.url });
+      created.add(rr.data.id); createdCount++;
+      console.log(`根页「${rootName}」 -> ${rr.data.id}`);
+    }
   }
 
   // 目录集合
@@ -108,20 +169,30 @@ async function main() {
   }
   const sortedDirs = [...dirs].sort((a, b) => a.split('/').length - b.split('/').length);
 
-  // 目录页（根下的子目录）
+  // 目录页（根下的子目录）：同名复用
   for (const sub of sortedDirs) {
     const parentRel = path.posix.dirname(sub);
     const parentId = parentRel === '.' ? dirPageMap.get('.') : dirPageMap.get(parentRel);
     if (!parentId) { console.error(`父目录页缺失 ${parentRel}，跳过 ${sub}`); continue; }
+    const name = path.posix.basename(sub);
     if (dryRun) { console.log(`[dry-run] 目录页 ${sub}（parent=${parentRel}）`); continue; }
-    const r = await withRetry(() => N.createPage({ type: 'page_id', id: parentId }, path.posix.basename(sub), opts), `建目录页 ${sub}`);
+    const existing = await findChildByTitle(parentId, name, opts);
+    if (existing) {
+      dirPageMap.set(sub, existing.id);
+      pageMap.set(sub, { id: existing.id, url: existing.url });
+      reusedCount++;
+      console.log(`复用目录页 ${sub} -> ${existing.id}`);
+      continue;
+    }
+    const r = await withRetry(() => N.createPage({ type: 'page_id', id: parentId }, name, opts), `建目录页 ${sub}`);
     if (isErr(r)) { console.error(`建目录页失败 ${sub}: ${JSON.stringify(r.data)}`); continue; }
     dirPageMap.set(sub, r.data.id);
     pageMap.set(sub, { id: r.data.id, url: r.data.url });
+    created.add(r.data.id); createdCount++;
     console.log(`目录页 ${sub} -> ${r.data.id}`);
   }
 
-  // md 页面（先全部建好，供 wikilink 互链）
+  // md 页面（先全部建好/找到，供 wikilink 互链）
   for (const f of mdFiles) {
     const rp = rel(f).replace(/\.md$/i, '');
     const sub = path.dirname(rel(f));
@@ -129,9 +200,17 @@ async function main() {
     if (!parentId) { console.error(`父目录页缺失，跳过 ${rel(f)}`); continue; }
     const title = path.basename(f).replace(/\.md$/i, '');
     if (dryRun) { console.log(`[dry-run] md 页 ${rp}（title=${title}）`); continue; }
+    const existing = await findChildByTitle(parentId, title, opts);
+    if (existing) {
+      pageMap.set(rp, { id: existing.id, url: existing.url });
+      reusedCount++;
+      console.log(`复用 md 页 ${rp} -> ${existing.id}`);
+      continue;
+    }
     const r = await withRetry(() => N.createPage({ type: 'page_id', id: parentId }, title, opts), `建 md 页 ${rp}`);
     if (isErr(r)) { console.error(`建 md 页失败 ${rp}: ${JSON.stringify(r.data)}`); continue; }
     pageMap.set(rp, { id: r.data.id, url: r.data.url });
+    created.add(r.data.id); createdCount++;
   }
 
   // wikilink 解析：目标 -> Notion URL
@@ -144,7 +223,7 @@ async function main() {
     return hit ? (hit.url || ('https://www.notion.so/' + hit.id.replace(/-/g, ''))) : null;
   }
 
-  // 3. 阶段二：填 md 内容（转 blocks + 上传内联图片）+ 记录已引用附件
+  // 3. 阶段二：填 md 内容（新建 = 追加；已存在 = 清空旧子块后重填覆盖）+ 记录已引用附件
   const referenced = new Set(); // 已内联上传的本地文件绝对路径
   async function uploadImage(src, baseDir) {
     const f = path.isAbsolute(src) ? src : path.resolve(baseDir, src);
@@ -167,55 +246,66 @@ async function main() {
       const md = fs.readFileSync(f, 'utf8');
       const conv = N.markdownToBlocks(md, { resolveLink, baseDir: path.dirname(f) });
       const blocks = await N.resolveImages(conv, (src) => uploadImage(src, path.dirname(f)));
+      if (!created.has(pg.id)) {
+        // 已存在页面：覆盖更新（清空旧内容再重填）
+        const removed = await clearChildren(pg.id, opts);
+        updatedCount++;
+        console.log(`UPD  ${rp}（清除 ${removed} 个旧块后重写）`);
+      } else {
+        console.log(`NEW  ${rp}`);
+      }
       for (let s = 0; s < blocks.length; s += 100) {
         const chunk = blocks.slice(s, s + 100);
         await withRetry(() => N.appendBlocks(pg.id, chunk, opts), `填充 ${rp}`);
       }
       ok++;
-      console.log(`OK   ${rp}`);
     } catch (e) {
       fail++; console.log(`ERR  ${rp} : ${e.message}`);
     }
   }
 
-  // 4. 孤儿附件（未被任何 md 引用），追加到其目录页的「附件」分区
-  if (!skipOrphans) {
-    const orphansByDir = new Map();
-    for (const f of otherFiles) {
-      if (referenced.has(f)) continue;
-      const sub = path.dirname(rel(f));
-      const key = sub || '.';
-      if (!orphansByDir.has(key)) orphansByDir.set(key, []);
-      orphansByDir.get(key).push(f);
+  // 4. 孤儿附件（未被任何 md 引用）：仅新建页面或 --with-orphans 时上传
+  const shouldHandleOrphans = withOrphans;
+  const orphansByDir = new Map();
+  for (const f of otherFiles) {
+    if (referenced.has(f)) continue;
+    const sub = path.dirname(rel(f));
+    const key = sub || '.';
+    if (!orphansByDir.has(key)) orphansByDir.set(key, []);
+    orphansByDir.get(key).push(f);
+  }
+  for (const [sub, files] of orphansByDir) {
+    const pageId = sub === '.' ? dirPageMap.get('.') : dirPageMap.get(sub);
+    if (!pageId) continue;
+    const pageNew = created.has(pageId);
+    if (!shouldHandleOrphans && !pageNew) {
+      console.log(`SKIP 孤儿附件 ${files.length} 个 -> ${sub}（页面已存在，避免重复；需要时加 --with-orphans）`);
+      continue;
     }
-    for (const [sub, files] of orphansByDir) {
-      const pageId = sub === '.' ? dirPageMap.get('.') : dirPageMap.get(sub);
-      if (!pageId) continue;
-      if (dryRun) {
-        console.log(`[dry-run] 孤儿附件 ${files.length} 个 -> 目录 ${sub}`);
-        continue;
-      }
-      const fileBlocks = [];
-      for (const f of files) {
-        try {
-          const up = await withRetry(() => N.uploadFile({ pageId, filePath: f, proxy }), '上传孤儿附件 ' + rel(f));
-          if (up.id) fileBlocks.push({ type: 'file', file: { type: 'file_upload', file_upload: { id: up.id }, name: up.name } });
-        } catch (e) { console.error(`孤儿附件上传失败 ${rel(f)}: ${e.message}`); }
-      }
-      if (fileBlocks.length) {
-        const header = [
-          { type: 'divider', divider: {} },
-          { type: 'heading_3', heading_3: { rich_text: [{ type: 'text', text: { content: '附件' } }] } },
-          ...fileBlocks,
-        ];
-        for (let s = 0; s < header.length; s += 100) {
-          await withRetry(() => N.appendBlocks(pageId, header.slice(s, s + 100), opts), `写附件分区 ${sub}`);
-        }
+    if (dryRun) {
+      console.log(`[dry-run] 孤儿附件 ${files.length} 个 -> 目录 ${sub}`);
+      continue;
+    }
+    const fileBlocks = [];
+    for (const f of files) {
+      try {
+        const up = await withRetry(() => N.uploadFile({ pageId, filePath: f, proxy }), '上传孤儿附件 ' + rel(f));
+        if (up.id) fileBlocks.push({ type: 'file', file: { type: 'file_upload', file_upload: { id: up.id }, name: up.name } });
+      } catch (e) { console.error(`孤儿附件上传失败 ${rel(f)}: ${e.message}`); }
+    }
+    if (fileBlocks.length) {
+      const header = [
+        { type: 'divider', divider: {} },
+        { type: 'heading_3', heading_3: { rich_text: [{ type: 'text', text: { content: '附件' } }] } },
+        ...fileBlocks,
+      ];
+      for (let s = 0; s < header.length; s += 100) {
+        await withRetry(() => N.appendBlocks(pageId, header.slice(s, s + 100), opts), `写附件分区 ${sub}`);
       }
     }
   }
 
-  console.log(`\n=== 完成：md 成功 ${ok}，失败 ${fail} ===`);
+  console.log(`\n=== 完成：md 成功 ${ok}，失败 ${fail}；新建 ${createdCount}，覆盖更新 ${updatedCount}，复用 ${reusedCount} ===`);
   if (pageMap.has('.')) console.log('根页链接: ' + (pageMap.get('.').url || ''));
 }
 

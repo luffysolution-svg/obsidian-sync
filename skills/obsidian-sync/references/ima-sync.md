@@ -57,11 +57,17 @@ node scripts/ima_api.cjs search --kb <kb_id> --query "<关键词>"
 
 ## 3. 导入
 
-### 3.1 查重（可选，批量建议先做）
+### 3.1 查重 / 增量同步（建议批量开启）
 
 ```powershell
+# 查重（只读）：返回每个名字是否已存在于目标位置（{name, is_repeated}）
 node scripts/ima_api.cjs check-names --kb <kb_id> [--folder <folder_id>] --names "a.md,b.png"
+
+# 一键目录同步默认复用同名文件夹；加 --incremental 则已存在的文件跳过（不产生重复条目）
+node scripts/sync_vault_to_ima.cjs --kb <kb_id> --dir <目录> --incremental
 ```
+
+> **ima 无内容更新端点**：`--incremental` 只能「跳过已存在」，**无法覆盖更新内容**。本地笔记改动后需：ima 客户端手动删旧条目 → 重新导入（或接受旧新并存）。已实测探测：`update_knowledge`/`modify_*`/`delete_*` 均 404，仅 `rename_knowledge`（改名）存在。
 
 ### 3.2 导入 Markdown / 图片 / 附件
 
@@ -112,5 +118,6 @@ ima 无独立公开链接，回传落位清单：`本地路径 | 知识库名(id
 ## 6. 失败与兜底
 
 - `code!=0`（或 `retcode!=0`）→ 展示 `msg`/`errmsg`，按错误码处理（110020 安全打击/110021 频控/110030 无权限等）。
+- **无覆盖更新**：ima API 无更新内容/删除端点（`update_knowledge` 等 404，仅 `rename_knowledge` 存在）；内容变更只能客户端手动删旧后重导。
 - COS 签名已按 Tencent COS V5 真机校准（要点见 `ima_api.cjs` 头部注释：secret_key 用原始串、SignKey 先 hex 化、域名用 `bucket_name.cos.region.myqcloud.com`）。再遇 403 先确认凭证未过期；兜底改用官方 SDK（`npm i cos-nodejs-sdk-v5`）或提示用户在 ima 客户端手动导入。
 - 图片/附件不保留内嵌位置关系（见 `references/attachments.md`）；用户若强依赖内嵌，建议改飞书。
