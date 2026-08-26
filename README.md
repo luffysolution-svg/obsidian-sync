@@ -10,6 +10,7 @@
 - **Notion 增量秒级跳过（v1.5.0）**：内容哈希缓存——未变化的页面整页跳过，只重写改动页；全量重写 10-30 分钟 → 未变化重跑数秒（`--force` 可强制全量）
 - **清理/回滚同步产物（v1.5.1）**：飞书 `drive +delete`、Notion `--clean` 递归归档整棵页面树、ima 客户端手动删——均有文档化命令
 - **飞书 → Obsidian 反向导入（v1.6.0）**：`sync_feishu_to_obsidian.cjs` 一键把飞书 docx 导入 vault——正文标准 markdown + **图片自动本地化到同目录 assets/**（下载飞书时效内链为本地文件，引用改写为相对路径），支持单篇/批量递归
+- **Notion → Obsidian 反向导入（v1.6.1）**：`sync_notion_to_obsidian.cjs` 页面树递归导出——blocks→markdown（表格/公式/代码/callout 等）+ 图片走代理下载到 assets/ + `[[wikilink]]` 互链 + frontmatter
 - 跨平台（Windows / macOS / Linux）
 
 ## 安装
@@ -81,21 +82,22 @@ Agent 加载 skill 后，直接说「把 `F:\个人知识库\素材\文章` 同�
 | **Notion** | `node scripts/sync_vault_to_notion.cjs --page <landing_id> --dir <本地目录> --clean`（递归归档根页树 + 清增量缓存；workspace 顶层页需客户端手动删） |
 | **ima** | API 无删除端点（`delete_*` 404），客户端手动删 |
 
-## 飞书 → Obsidian 反向导入（v1.6.0，实验性）
+## 飞书 / Notion → Obsidian 反向导入（v1.6.x，实验性）
 
-把飞书在线文档导入本地 Obsidian vault，图片自动本地化（不再依赖飞书时效内链）：
+把飞书在线文档 / Notion 页面树导入本地 Obsidian vault，图片自动本地化：
 
 ```bash
-# 单篇
-node skills/obsidian-sync/scripts/sync_feishu_to_obsidian.cjs --url "<飞书docx链接或token>" --out "<vault目录>"
-
-# 批量（递归子文件夹）
+# 飞书：单篇 / 批量（递归子文件夹）
+node skills/obsidian-sync/scripts/sync_feishu_to_obsidian.cjs --url "<docx链接或token>" --out "<vault目录>"
 node skills/obsidian-sync/scripts/sync_feishu_to_obsidian.cjs --folder "<folder_token>" --out "<vault目录>"
+
+# Notion：页面树递归导出（国内加 --proxy）
+node skills/obsidian-sync/scripts/sync_notion_to_obsidian.cjs --page "<page_id>" --out "<vault目录>" --proxy http://127.0.0.1:10809
 ```
 
-- 正文：`lark-cli drive +export --file-extension markdown`（标题/表格/代码块/链接完整）
-- 图片：导出后立即下载内链图片 → 存同目录 `assets/`（`--attach-dir` 可改）→ 引用改写为 `![](assets/image-xx.png)`
-- 同名文档自动 `-2/-3` 后缀；shortcut/原生文件跳过；公式块飞书导出为文本（飞书侧限制）
+- 飞书：`lark-cli drive +export --file-extension markdown`（表格/代码块/链接完整）；时效内链图片导出后立即下载到同目录 `assets/`
+- Notion：blocks→markdown（标题/列表/todo/引用/callout/代码/表格/公式/图片/文件/互链）；图片走代理下载；子页面递归 + `[[wikilink]]`；frontmatter 自动写入
+- 附件目录默认 `assets/`（`--attach-dir` 可改）；同名文档自动 `-2/-3` 后缀；均只读不修改远端
 
 ## 依赖
 

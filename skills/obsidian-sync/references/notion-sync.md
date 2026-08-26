@@ -147,3 +147,17 @@ Notion 有公开链接：`createPage` 返回的 `url`（`https://www.notion.so/<
 - **不做双向**：只 Obsidian → Notion，不回写、不 diff、不删除远端。
 - **不写数据库条目**：默认页面树；如需把每条笔记做成数据库行（带标签/日期等属性），需单独适配 schema。
 - **integration 身份**：创建者是 bot，页面作者显示为 integration；如需「本人」作者，需用 OAuth（本 skill 暂用 Internal Token，简单可靠）。
+
+## 8. Notion → Obsidian 反向导入（v1.6.1，实验性）
+
+只读把 Notion 页面树导入 Obsidian vault（不改 Notion 侧任何内容）：
+
+```powershell
+node scripts/sync_notion_to_obsidian.cjs --page <page_id> --out "<vault目录>" [--attach-dir assets] [--proxy http://127.0.0.1:10809]
+```
+
+- **读取**：`getPage` + 递归 `children`（含嵌套子块，带 429/5xx 重试）。
+- **blocks → markdown**：标题/列表/todo/引用/callout（`> [!NOTE]`）/代码块/分隔线/表格/公式（`$$`）/图片/文件/embed/页面互链；`child_page` 递归成目录层级 + `[[wikilink]]`；`child_database` 提示不展开。
+- **图片本地化**：Notion 托管图片（`prod-files-secure.s3` / `notion.so/image/`）走代理下载到 `<out>/assets/`（`--attach-dir` 可改），引用改写为相对路径；external 图片保持外链。实测：中文页面、代码块（11 对闭合）、3 张图片下载全部正常。
+- **frontmatter**：自动写 title / url / created / updated / source。
+- 单子页面失败不中断整批（打印 ❌ 后继续）。

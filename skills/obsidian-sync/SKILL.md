@@ -1,6 +1,6 @@
 ---
 name: obsidian-sync
-version: 1.6.0
+version: 1.6.1
 description: "把 Obsidian 笔记（Markdown + 附件）单向同步到飞书云文档/知识库、腾讯 ima 知识库和 Notion。自动检测并安装 lark-cli 与所需技能，飞书走设备流二维码登录，ima 走 Client ID/API Key、Notion 走 Internal Token 引导配置；探测目标已有结构，询问落点，支持目录层级、本地图片与附件导入，完成后校验并回传结果。跨平台（Windows/macOS/Linux）。"
 metadata:
   requires:
@@ -69,27 +69,30 @@ metadata:
 
 详见 [`references/attachments.md`](references/attachments.md)。要点：飞书外链图片自动内联、本地图片 `docs +media-insert`；ima 图片 / 附件是独立知识条目（不保留内嵌位置）。
 
-## 飞书 → Obsidian 反向导入（v1.6.0，实验性）
+## 飞书 / Notion → Obsidian 反向导入（v1.6.1，实验性）
 
-与主流程方向相反：把**飞书在线文档（docx）导入本地 Obsidian vault**。脚本自动完成「导出 → 图片本地化 → 引用改写 → 落盘」：
+与主流程方向相反：把**飞书在线文档 / Notion 页面树**导入本地 Obsidian vault。脚本自动完成「读取/导出 → 图片本地化 → 引用改写 → 落盘」：
 
 ```powershell
-# 单篇（--url 接受完整链接或裸 token）
+# 飞书：单篇（--url 接受完整链接或裸 token）
 node scripts/sync_feishu_to_obsidian.cjs --url "<飞书docx链接或token>" --out "<vault目录>" [--attach-dir assets]
 
-# 批量（递归子文件夹；同名文档自动加 -2/-3 后缀；shortcut/原生文件跳过）
+# 飞书：批量（递归子文件夹；同名文档自动 -2/-3 后缀；shortcut/原生文件跳过）
 node scripts/sync_feishu_to_obsidian.cjs --folder "<飞书文件夹token>" --out "<vault目录>" [--attach-dir assets]
+
+# Notion：页面树递归导出（含子页面，[[wikilink]] 互链；国内加 --proxy）
+node scripts/sync_notion_to_obsidian.cjs --page "<notion_page_id>" --out "<vault目录>" [--attach-dir assets] [--proxy http://127.0.0.1:10809]
 ```
 
 **原理与要点（实测）**：
 
-- `lark-cli drive +export --file-extension markdown` 导出正文为标准 markdown（标题/表格/代码块/链接完整）。
-- 飞书导出的图片是**时效内链 URL**（`internal-api-drive-stream.feishu.cn/...`），但 authcode 本身就是一次性凭证——**导出后立即 GET 可直接下载**（实测 11/11、133/133 成功），无需额外登录。
-- 图片下载到 Obsidian 附件目录（默认每篇同目录 `assets/`），引用改写为相对路径 `![](assets/image-xx.png)`，彻底消除时效问题。
-- 自动清理导出元数据首行 `<title>...</title>`。
-- **已知限制**：公式块飞书导出为文本（飞书侧限制，非脚本问题）；shortcut 与原生 file 类型跳过；图片必须在导出后立即下载（脚本内部串行完成，无过期窗口）。
+- **飞书**：`lark-cli drive +export --file-extension markdown` 导出正文为标准 markdown（标题/表格/代码块/链接完整）。图片是**时效内链 URL**（`internal-api-drive-stream.feishu.cn/...`），但 authcode 本身就是一次性凭证——**导出后立即 GET 可直接下载**（实测 133/133 成功），图片存附件目录、引用改写为相对路径。
+- **Notion**：API 直读（`getPage` + 递归 `children`）→ blocks → markdown；支持标题/列表/todo/引用/callout/代码/表格/公式（`$$`）/图片/文件/embed/页面互链；图片走 Notion CDN 下载到附件目录（经代理），external 图片保持外链；子页面递归成目录层级 + `[[wikilink]]`；自动写 frontmatter（title/url/时间）。
+- 附件目录默认每篇同目录 `assets/`（`--attach-dir` 可改）；自动清理飞书导出 `<title>` 元数据首行。
+- **已知限制**：飞书公式块导出为文本（飞书侧限制）；Notion `child_database` 仅提示不展开；Notion `files` 属性与部分块（`synced_block` 平铺、`breadcrumb` 等忽略）。
+- **只读操作**：两者均不修改飞书/Notion 侧任何内容。
 
-> 需要 lark-cli 已安装并完成 user 认证；找不到入口时可设 `LARK_CLI` 环境变量指定命令。
+> 需要 lark-cli 已安装并完成 user 认证（飞书）；Notion 需 token 且 integration 可访问目标页面（国内需代理）。找不到 lark-cli 入口时可设 `LARK_CLI` 环境变量。
 
 ## 校验与回传的统一要求
 
@@ -136,9 +139,12 @@ node scripts/sync_vault_to_notion.cjs --page <id> --dir <目录>    # 一键目�
 node scripts/sync_vault_to_notion.cjs --page <id> --dir <目录> --force # 忽略增量缓存，强制全量重写（首次运行默认信任远端建缓存）
 node scripts/sync_vault_to_notion.cjs --page <id> --dir <目录> --clean # 清理：递归归档该目录对应的整棵页面树 + 清增量缓存
 
-# 飞书 → Obsidian 反向导入（v1.6.0）
+# 飞书 → Obsidian 反向导入（v1.6.0+）
 node scripts/sync_feishu_to_obsidian.cjs --url <docx链接> --out <vault目录>   # 单篇（图片自动本地化到 assets/）
 node scripts/sync_feishu_to_obsidian.cjs --folder <folder_token> --out <vault目录> # 批量（递归子文件夹）
+
+# Notion → Obsidian 反向导入（v1.6.1+）
+node scripts/sync_notion_to_obsidian.cjs --page <page_id> --out <vault目录> --proxy http://127.0.0.1:10809 # 页面树递归导出
 ```
 
 > **Notion 增量同步（v1.5.0+）**：`sync_vault_to_notion.cjs` 默认带内容哈希缓存（`~/.config/obsidian-sync/notion-cache.json`）——页面已存在且本地 md 未变化 → 整页跳过（秒级）；仅本地有改动的页面才「清空旧块重填」覆盖更新（保留 URL、无重复页）。首次运行对已存在页面信任远端现状并建缓存；需要强制全量重写时加 `--force`。
@@ -169,4 +175,5 @@ node scripts/sync_feishu_to_obsidian.cjs --folder <folder_token> --out <vault目
 - [`scripts/notion_api.cjs`](scripts/notion_api.cjs) — Notion API 封装 + markdown→blocks
 - [`scripts/sync_vault_to_notion.cjs`](scripts/sync_vault_to_notion.cjs) — Notion 一键目录同步
 - [`scripts/sync_feishu_to_obsidian.cjs`](scripts/sync_feishu_to_obsidian.cjs) — 飞书 → Obsidian 反向导入（图片本地化）
+- [`scripts/sync_notion_to_obsidian.cjs`](scripts/sync_notion_to_obsidian.cjs) — Notion → Obsidian 反向导入（blocks→md + 图片本地化）
 - [`scripts/env_check.ps1`](scripts/env_check.ps1) / [`scripts/env_check.sh`](scripts/env_check.sh) — 环境检测
