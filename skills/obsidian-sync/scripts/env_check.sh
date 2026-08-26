@@ -25,6 +25,13 @@ if [ -n "${IMA_OPENAPI_APIKEY:-}" ] || [ -n "${IMA_API_KEY:-}" ] || [ -f "$HOME/
   ima_key="set"
 fi
 
+notion_token="MISSING"
+if [ -n "${NOTION_TOKEN:-}" ] || [ -n "${NOTION_API_KEY:-}" ] || [ -f "$HOME/.config/notion/token" ]; then
+  notion_token="set"
+fi
+notion_proxy="unset"
+[ -n "${NOTION_PROXY:-}" ] && notion_proxy="set"
+
 cat <<EOF
 {
   "node": "$node_v",
@@ -33,6 +40,8 @@ cat <<EOF
   "lark_cli": "$lark",
   "lark_auth_identity": "$lark_identity",
   "ima_client_id": "$ima_cid",
-  "ima_api_key": "$ima_key"
+  "ima_api_key": "$ima_key",
+  "notion_token": "$notion_token",
+  "notion_proxy": "$notion_proxy"
 }
 EOF

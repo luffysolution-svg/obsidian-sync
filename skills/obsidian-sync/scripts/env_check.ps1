@@ -75,4 +75,16 @@ $result.ima = [ordered]@{
     api_key   = $keyStatus
 }
 
+# Notion token (presence only, never the value)
+$notionToken = $env:NOTION_TOKEN
+if (-not $notionToken) { $notionToken = $env:NOTION_API_KEY }
+if (-not $notionToken -and (Test-Path "$HOME\.config\notion\token")) {
+    $notionToken = (Get-Content "$HOME\.config\notion\token" -Raw).Trim()
+}
+$notionStatus = 'MISSING'; if ($notionToken) { $notionStatus = 'set' }
+$result.notion = [ordered]@{
+    token = $notionStatus
+    proxy = if ($env:NOTION_PROXY) { 'set' } else { 'unset' }
+}
+
 $result | ConvertTo-Json -Depth 6

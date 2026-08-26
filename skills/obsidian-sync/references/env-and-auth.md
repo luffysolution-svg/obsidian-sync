@@ -155,3 +155,44 @@ node scripts/ima_api.cjs list-kbs        # 返回 code=0 且列出知识库 = �
 ```
 
 > **安全约定**：凭证只作为 header 发给 `ima.qq.com`；文件上传阶段 `create_media` 返回的临时 COS 凭证只发往 `*.myqcloud.com`，用户的 Client ID / API Key 不发给 COS。
+
+## 7. Notion 凭证检测、引导配置与验证
+
+Notion 走 `https://api.notion.com/v1`，认证头 `Authorization: Bearer <token>` + `Notion-Version: 2026-03-11`。
+
+> **国内网络（重要）**：`api.notion.com` 在国内被墙，直连会超时/被掐断。需通过本机代理访问，代理用 `NOTION_PROXY` 环境变量或命令 `--proxy` 传入，支持：
+>
+> - `http://127.0.0.1:10809`（HTTP CONNECT 代理）
+> - `socks5://127.0.0.1:10808`（SOCKS5 代理；v2rayN 默认 SOCKS=10808 / HTTP=10809，clash 默认 7890）
+>
+> 脚本 `notion_api.cjs` 已内置 SOCKS5 / HTTP 代理隧道（零依赖，`net`+`tls`）。
+
+### 7.1 一键检测 + 配置（跨平台，推荐）
+
+```bash
+node scripts/notion_setup.cjs                        # 检测；缺失则交互式引导配置并验证
+node scripts/notion_setup.cjs --check                # 只检测（输出 JSON，脱敏）
+node scripts/notion_setup.cjs --set <token> [--proxy socks5://host:port]  # 非交互写入并验证
+```
+
+### 7.2 凭证来源（引导用户）
+
+1. 打开 **https://www.notion.so/profile/integrations**。
+2. **New integration → Internal**，起名（如 `Obsidian Sync`）→ **Submit**。
+3. 复制 **Internal Integration Secret**（`ntn_` 或 `secret_` 开头）。
+4. **关键**：在你要同步的 Notion 页面/数据库里点右上「**… → Connections**」，**连接刚才创建的 integration**。否则 token 能验证通过但读不到目标内容（报 403）。
+
+### 7.3 存放位置（脚本按「环境变量 → 配置文件」优先级读）
+
+- **环境变量**：`NOTION_TOKEN`（兼容 `NOTION_API_KEY`）
+- **配置文件**：`~/.config/notion/token`（`notion_setup.cjs` 自动写这里）
+
+### 7.4 验证
+
+```bash
+node scripts/notion_api.cjs whoami        # 返回 bot/workspace/owner = token 有效
+```
+
+`whoami` 里的 `max_file_upload_size_in_bytes` 是单文件上传上限（5GB 起步）。
+
+> **身份说明**：Internal Token 是「integration（机器人）」身份，创建的内容作者显示为 integration 名；这是 Notion 官方推荐的稳定方式，不涉及 OAuth 用户授权流程。

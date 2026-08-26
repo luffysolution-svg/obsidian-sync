@@ -1,13 +1,14 @@
 {
   "name": "obsidian-sync-skill",
-  "version": "1.1.0",
-  "description": "Obsidian 笔记单向同步到飞书/ima 的 Agent Skill（Claude Code / Codex / OpenCode / Pi / Hermes 等）",
+  "version": "1.2.0",
+  "description": "Obsidian 笔记单向同步到飞书/ima/Notion 的 Agent Skill（Claude Code / Codex / OpenCode / Pi / Hermes 等）",
   "license": "MIT",
   "keywords": [
     "obsidian",
     "feishu",
     "lark",
     "ima",
+    "notion",
     "agent-skill",
     "skills",
     "claude-code",
