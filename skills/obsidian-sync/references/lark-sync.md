@@ -88,6 +88,26 @@ foreach ($f in $files) {
 }
 ```
 
+**macOS/Linux 等价版（bash，POSIX 兼容——macOS 自带 bash 3.2 无关联数组，用 case 映射）**：
+
+```bash
+# workdir 设为 vault 目录；lark-cli 直接在 PATH 中
+folder_token_for() {
+  case "$1" in
+    子目录A) echo "<folder_token_A>" ;;
+    子目录B) echo "<folder_token_B>" ;;
+  esac
+}
+find . -type f -name '*.md' | while read -r rel; do
+  rel="${rel#./}"
+  dir="$(dirname "$rel")"
+  tok="$(folder_token_for "$dir")"
+  [ -z "$tok" ] && { echo "SKIP $rel"; continue; }
+  lark-cli drive +import --file "$rel" --type docx --folder-token "$tok" --json
+done
+# 成功信封同 Windows；ready=false 时用返回的 next_command 续查任务
+```
+
 要点（已实测）：中文文件名 / 空格 / 全角符号经 `lark-cli.ps1` shim 传参均正常；同名文件夹串行导入 0 失败。
 
 ### 3.5 增量同步与覆盖更新（v1.4.0+）
