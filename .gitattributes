@@ -1,0 +1,8 @@
+# 行尾规范：Windows 上开发、Linux/macOS 上运行的跨平台项目必须显式声明
+*.sh   text eol=lf       # bash 脚本强制 LF（CRLF 会导致 shebang/脚本报错）
+*.cjs  text eol=lf       # Node 脚本统一 LF
+*.ps1  text eol=crlf     # PowerShell 保持 CRLF（Windows 原生）
+*.md   text              # Markdown 跟随仓库默认
+*.json text
+*.yml  text
+*.yaml text
