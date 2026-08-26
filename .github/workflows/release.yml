@@ -1,12 +1,17 @@
 name: release
 
 # 三渠道自动发版：npx（GitHub main 分支）+ npm（npm publish）+ Release 包（zip）
-# 触发方式：推送 vX.Y.Z tag（推荐流程见 README「发布流程」）
+# 触发方式：推送 vX.Y.Z tag（推荐）；或手动 workflow_dispatch 兜底（tag 推送未触发时用）
 # 前置：仓库需配置 NPM_TOKEN secret（npm 账号 publish 权限的 token）
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "要发布的版本号（须与 package.json 一致），如 1.4.1"
+        required: true
 
 jobs:
   release:
@@ -23,13 +28,19 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
 
-      - name: Verify version matches tag
+      - name: Verify version
         run: |
           ver="$(node -p "require('./package.json').version")"
-          tag="${GITHUB_REF#refs/tags/}"
-          echo "package.json version: ${ver} | tag: ${tag}"
-          if [ "${tag}" != "v${ver}" ]; then
-            echo "::error::package.json version (${ver}) 与 tag (${tag}) 不一致。请先 bump 版本：npm version patch/minor/major"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            tag="${GITHUB_REF#refs/tags/}"
+            want="v${ver}"
+            echo "push: tag=${tag} | package.json=${ver}"
+          else
+            want="v${{ inputs.version }}"
+            echo "dispatch: version=${{ inputs.version }} | package.json=${ver}"
+          fi
+          if [ "${want}" != "v${ver}" ]; then
+            echo "::error::版本不一致（期望 ${want}，package.json 为 ${ver}）。请先 bump 版本：npm version patch/minor/major"
             exit 1
           fi
 
@@ -44,6 +55,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', inputs.version) }}
           files: dist/obsidian-sync-v*.zip
           generate_release_notes: true
           fail_on_unmatched_files: true
