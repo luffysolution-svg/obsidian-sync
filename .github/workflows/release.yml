@@ -49,7 +49,11 @@ jobs:
           fail_on_unmatched_files: true
 
       - name: Publish to npm
-        if: ${{ secrets.NPM_TOKEN != '' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "::warning::NPM_TOKEN 未配置，跳过 npm publish"
+            exit 0
+          fi
+          npm publish
