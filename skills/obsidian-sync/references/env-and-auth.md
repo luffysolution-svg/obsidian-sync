@@ -166,6 +166,8 @@ Notion 走 `https://api.notion.com/v1`，认证头 `Authorization: Bearer <token
 > - `socks5://127.0.0.1:10808`（SOCKS5 代理；v2rayN 默认 SOCKS=10808 / HTTP=10809，clash 默认 7890）
 >
 > 脚本 `notion_api.cjs` 已内置 SOCKS5 / HTTP 代理隧道（零依赖，`net`+`tls`）。
+>
+> **实测提醒**：即使能直连成功，也可能**偶发** `getaddrinfo ENOTFOUND api.notion.com`（本机 DNS 解析失败，第一次调用成功、后续失败都见过）。遇到时直接重试，或显式加 `--proxy http://127.0.0.1:10809`（v2rayN HTTP 端口）让脚本走代理隧道，更稳定。建议所有 Notion 命令统一带 `--proxy`。
 
 ### 7.1 一键检测 + 配置（跨平台，推荐）
 

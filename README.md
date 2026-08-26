@@ -7,6 +7,7 @@
 - **Notion**：官方 API（Internal Token，含首次使用引导配置；国内需代理，脚本内置 SOCKS5/HTTP 隧道）
 - 支持目录层级、多篇批量、本地图片、附件导入；完成后校验并回传结果
 - **增量同步 + 覆盖更新（v1.4.0）**：重复同步不产生重复条目；飞书 / Notion 支持已存在内容覆盖更新（保留链接），ima 支持查重跳过已存在条目
+- **Notion 增量秒级跳过（v1.5.0）**：内容哈希缓存——未变化的页面整页跳过，只重写改动页；全量重写 10-30 分钟 → 未变化重跑数秒（`--force` 可强制全量）
 - 跨平台（Windows / macOS / Linux）
 
 ## 安装
@@ -55,16 +56,18 @@ Agent 加载 skill 后，直接说「把 `F:\个人知识库\素材\文章` 同�
 ```
 
 > **重复运行是安全的（v1.4.0+）**：Notion / 飞书同名内容覆盖更新，ima 加 `--incremental` 跳过已存在条目；不会产生重复内容。
+>
+> **Notion 重跑很快（v1.5.0+）**：内容哈希缓存（`~/.config/obsidian-sync/notion-cache.json`）跳过未变化页面，只有改动页被覆盖更新。
 
-## 更新已同步的笔记（v1.4.0）
+## 更新已同步的笔记（v1.4.0+）
 
 本地笔记修改后，重新同步即可：
 
 | 平台 | 重新同步行为 | 命令 |
 |---|---|---|
-| **飞书** | 同名 docx 整文覆盖更新（链接不变；图片/评论会丢，本地图片需重新插入） | `lark-cli docs +update --doc <url> --command overwrite --doc-format markdown --content "<md>"` |
+| **飞书** | 同名 docx 整文覆盖更新（链接不变；图片/评论会丢，本地图片需重新插入）。多行内容用 `@file` 传，避免被拆成位置参数 | `lark-cli docs +update --doc <url> --command overwrite --doc-format markdown --content @x.md` |
 | **ima** | `--incremental`：新增自动导入、已存在的跳过（不重复）；**内容变更需 ima 客户端手动删旧后重导**（API 无更新端点） | `node scripts/sync_vault_to_ima.cjs --kb <id> --dir <目录> --incremental` |
-| **Notion** | 同名页面自动覆盖更新（URL 不变，无重复页） | `node scripts/sync_vault_to_notion.cjs --page <id> --dir <目录>` |
+| **Notion** | 同名页面自动覆盖更新（URL 不变，无重复页）；v1.5.0+ 哈希缓存跳过未变化页面，仅改动页重写 | `node scripts/sync_vault_to_notion.cjs --page <id> --dir <目录>`（加 `--force` 强制全量） |
 
 ## 依赖
 
@@ -100,9 +103,10 @@ skills/obsidian-sync/
 - **ima 无覆盖更新**：API 无更新内容/删除端点（仅 `rename_knowledge` 存在），内容变更需在 ima 客户端手动删旧条目后重新导入；`--incremental` 可跳过已存在条目避免重复。
 - **ima 无删除端点**：误建/测试产物只能在 ima 客户端手动删。
 - **ima 图片不内嵌**：作为独立知识条目（media_type 9），不保留正文内联位置。
-- **Notion 幂等覆盖更新**：同名页面覆盖更新内容（保留 URL，不产生重复页）；workspace 级顶层页面 API 不支持归档/删除，只能客户端手动删。
-- **飞书覆盖更新**：`docs +update --command overwrite` 整文重写（保留文档链接；图片/评论会丢，本地图片需重新插入）。
-- **Notion 需代理（国内）**：`api.notion.com` 被墙，走 `--proxy` / `NOTION_PROXY`。
+- **Notion 幂等覆盖更新（v1.5.0+ 增量）**：同名页面覆盖更新内容（保留 URL，不产生重复页）；哈希缓存跳过未变化页（`--force` 强制全量）；workspace 级顶层页面 API 不支持归档/删除，只能客户端手动删。
+- **飞书覆盖更新**：`docs +update --command overwrite` 整文重写（保留文档链接；图片/评论会丢，本地图片需重新插入）；多行内容用 `--content @file`。
+- **大文件限制（实测）**：飞书 `drive +upload` >20MB 报 `quota_exceeded`（1061043）；Notion `uploadFile` 仅 `single_part` ≤20MB。大附件需压缩或外链。
+- **Notion 需代理（国内）**：`api.notion.com` 被墙，走 `--proxy` / `NOTION_PROXY`；直连偶发 `ENOTFOUND`，统一带 `--proxy` 更稳。
 
 ## 发布流程（维护者）
 

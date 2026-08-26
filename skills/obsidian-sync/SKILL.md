@@ -1,6 +1,6 @@
 ---
 name: obsidian-sync
-version: 1.2.0
+version: 1.5.0
 description: "把 Obsidian 笔记（Markdown + 附件）单向同步到飞书云文档/知识库、腾讯 ima 知识库和 Notion。自动检测并安装 lark-cli 与所需技能，飞书走设备流二维码登录，ima 走 Client ID/API Key、Notion 走 Internal Token 引导配置；探测目标已有结构，询问落点，支持目录层级、本地图片与附件导入，完成后校验并回传结果。跨平台（Windows/macOS/Linux）。"
 metadata:
   requires:
@@ -83,7 +83,7 @@ lark-cli doctor / auth status / whoami                          # 检测 / 认�
 lark-cli wiki +space-list                                        # 知识库空间
 lark-cli drive +import --file x.md --type docx --folder-token <t> # 导入
 lark-cli docs +media-insert --file img.png --doc <url> --type image # 插图片
-lark-cli docs +update --doc <url> --command overwrite --doc-format markdown --content <md> # 覆盖更新已存在文档（保留链接）
+lark-cli docs +update --doc <url> --command overwrite --doc-format markdown --content @x.md # 覆盖更新已存在文档（保留链接；多行内容务必用 @file，直接传 --content 会被拆成位置参数报错）
 
 # ima
 node scripts/ima_setup.cjs                                       # 凭证检测 / 配置
@@ -98,17 +98,22 @@ node scripts/notion_api.cjs whoami                               # 验证 token 
 node scripts/notion_api.cjs search --type page                    # 页面列表
 node scripts/notion_api.cjs import-md --parent <id> --file x.md   # 单篇导入
 node scripts/sync_vault_to_notion.cjs --page <id> --dir <目录>    # 一键目录同步（幂等：同名页面覆盖更新，不产生重复页）
+node scripts/sync_vault_to_notion.cjs --page <id> --dir <目录> --force # 忽略增量缓存，强制全量重写（首次运行默认信任远端建缓存）
 ```
+
+> **Notion 增量同步（v1.5.0+）**：`sync_vault_to_notion.cjs` 默认带内容哈希缓存（`~/.config/obsidian-sync/notion-cache.json`）——页面已存在且本地 md 未变化 → 整页跳过（秒级）；仅本地有改动的页面才「清空旧块重填」覆盖更新（保留 URL、无重复页）。首次运行对已存在页面信任远端现状并建缓存；需要强制全量重写时加 `--force`。
 
 ## 边界与限制
 
 - **飞书双向**：`drive +sync` 只同步原生文件、跳过在线 docx，本 skill 只做单向。
-- **飞书覆盖更新**：`docs +update --command overwrite` 整文重写（保留文档链接），但会丢失图片/评论，本地图片需重新 `docs +media-insert`。
+- **飞书覆盖更新**：`docs +update --command overwrite` 整文重写（保留文档链接），但会丢失图片/评论，本地图片需重新 `docs +media-insert`；**多行内容必须用 `--content @file` 传（直接内联会被拆成位置参数报 `positional arguments are not supported`）**。
+- **飞书文件大小限制（实测）**：`drive +upload` 对 >20MB 文件报 `quota_exceeded / file size beyond limit`（code 1061043），37MB mp4 实测失败；大附件需先压缩或走外链。
 - **ima 增量同步**：`--incremental` 按文件名查重跳过已存在条目；**ima 无更新内容/删除端点，内容变更无法覆盖**，需在 ima 客户端手动删旧条目后重新导入。
 - **ima 无删除端点**：误建 / 测试产物只能在 ima 客户端手动删。
 - **ima 图片不内嵌**：作为独立知识条目（media_type 9），不保留正文内联位置。
-- **Notion 幂等覆盖更新**：同名页面直接覆盖更新内容（保留页面 URL，不产生重复页）；附件/孤儿附件不重复上传（需要时加 `--with-orphans`）。
-- **Notion 是国内被墙服务**：需代理（`NOTION_PROXY` 或 `--proxy`），且 integration 必须先连接目标页面。
+- **Notion 幂等覆盖更新（v1.5.0+ 增量）**：同名页面覆盖更新内容（保留页面 URL，不产生重复页）；内容哈希缓存跳过未变化页面，仅改动页重写，未变化重跑秒级完成（`--force` 强制全量）；附件/孤儿附件不重复上传（需要时加 `--with-orphans`）。
+- **Notion 是国内被墙服务**：需代理（`NOTION_PROXY` 或 `--proxy`），且 integration 必须先连接目标页面；**直连偶发 `getaddrinfo ENOTFOUND api.notion.com`（DNS 解析失败），重试或显式 `--proxy http://127.0.0.1:10809`（v2rayN HTTP）等本机代理即可**。
+- **Notion 大附件限制**：脚本 `uploadFile` 仅实现 `single_part`（≤20MB），更大文件需压缩或外链（multi_part 未实现）；嵌套在无 md 的 `assets/` 子目录下的附件会因「父目录页缺失」被跳过。
 
 ## 参考
 

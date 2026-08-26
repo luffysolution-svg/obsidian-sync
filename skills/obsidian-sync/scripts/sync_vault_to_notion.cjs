@@ -4,18 +4,22 @@
  * sync_vault_to_notion.cjs — 把本地目录（含子目录）单向同步进 Notion，保留目录层级。
  *
  * 用法：
- *   node sync_vault_to_notion.cjs --page <page_id> --dir <本地目录> [--title <根页标题>] [--dry-run] [--with-orphans] [--proxy socks5://host:port]
+ *   node sync_vault_to_notion.cjs --page <page_id> --dir <本地目录> [--title <根页标题>] [--dry-run] [--with-orphans] [--force] [--proxy socks5://host:port]
  *
  * 说明：
  *   - 依赖同目录 notion_api.cjs（自动加载 Notion token，见 env-and-auth.md）。
  *   - 模型：目录 → 页面；.md → 子页面（正文 = markdown 转 blocks）；引用到的图片/附件 → 内联 image/file 块（自动上传）。
  *   - 幂等同步（默认）：同名页面已存在则【覆盖更新内容】（清空旧子块后重填，保留页面 URL），不存在则新建；
  *     重复运行不会产生重复页面，本地笔记更新后重跑即可同步过去。
+ *   - 增量跳过（v1.5.0+）：内容哈希缓存（~/.config/obsidian-sync/notion-cache.json）——页面已存在且本地 md
+ *     内容未变化时跳过（不重写）；首次运行对已存在页面信任远端现状并建缓存。需要强制全量重写时加 --force。
  *   - 未被任何 md 引用的「孤儿附件」只在页面新建时或显式 --with-orphans 时上传（避免重复堆积）。
  */
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const crypto = require('crypto');
 const N = require('./notion_api.cjs');
 
 function argValue(args, flag) {
@@ -23,6 +27,18 @@ function argValue(args, flag) {
   return (i >= 0 && i + 1 < args.length) ? args[i + 1] : undefined;
 }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ---------- 增量缓存（内容哈希，避免未变化页面全量重写） ----------
+const CACHE_DIR = path.join(os.homedir(), '.config', 'obsidian-sync');
+const CACHE_FILE = path.join(CACHE_DIR, 'notion-cache.json');
+function loadCache() {
+  try { return JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8')); } catch { return {}; }
+}
+function saveCache(cache) {
+  try { fs.mkdirSync(CACHE_DIR, { recursive: true }); fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2)); }
+  catch (e) { console.error('增量缓存写入失败（不影响同步）: ' + e.message); }
+}
+function sha256(s) { return crypto.createHash('sha256').update(s, 'utf8').digest('hex'); }
 
 // 带重试的 API 调用（429 / 5xx / 网络抖动）
 async function withRetry(fn, label, retries = 4) {
@@ -86,12 +102,15 @@ async function listAllChildren(id, opts) {
 }
 
 // 清空页面内容（删除全部子块；仅用于 md 页，不碰 child_page）
+// 并发 3 删除（Notion 3 req/s 限流，429 由 withRetry 退避处理）
 async function clearChildren(pageId, opts) {
   const blocks = await listAllChildren(pageId, opts);
-  for (const b of blocks) {
-    if (b.type === 'child_page' || b.type === 'child_database') continue; // 安全兜底：绝不删子页面
-    const d = await withRetry(() => N.deleteBlock(b.id, opts), '删块 ' + b.id);
-    if (isErr(d)) console.error(`删块失败 ${b.id}: ${JSON.stringify(d.data)}`);
+  const targets = blocks.filter(b => b.type !== 'child_page' && b.type !== 'child_database');
+  const CONC = 3;
+  for (let i = 0; i < targets.length; i += CONC) {
+    const chunk = targets.slice(i, i + CONC);
+    await Promise.all(chunk.map(b => withRetry(() => N.deleteBlock(b.id, opts), '删块 ' + b.id)
+      .then(d => { if (isErr(d)) console.error(`删块失败 ${b.id}: ${JSON.stringify(d.data)}`); })));
   }
   return blocks.length;
 }
@@ -103,11 +122,12 @@ async function main() {
   const rootTitle = argValue(args, '--title');
   const dryRun = args.includes('--dry-run');
   const withOrphans = args.includes('--with-orphans');
+  const force = args.includes('--force');
   const proxy = argValue(args, '--proxy');
   const opts = proxy ? { proxy } : {};
 
   if (!landingPage || !dir) {
-    console.error('用法: node sync_vault_to_notion.cjs --page <page_id> --dir <本地目录> [--title <根页标题>] [--dry-run] [--with-orphans] [--proxy socks5://host:port]');
+    console.error('用法: node sync_vault_to_notion.cjs --page <page_id> --dir <本地目录> [--title <根页标题>] [--dry-run] [--with-orphans] [--force] [--proxy socks5://host:port]');
     process.exit(1);
   }
   const rootDir = path.resolve(dir);
@@ -135,7 +155,12 @@ async function main() {
   const pageMap = new Map(); // relpath(去 .md) -> {id,url}
   const dirPageMap = new Map(); // 目录 relpath(或 '.' 表示根) -> pageId
   const created = new Set(); // 本次新建的页面 id（用于孤儿附件判断）
-  let createdCount = 0, updatedCount = 0, reusedCount = 0;
+  let createdCount = 0, updatedCount = 0, reusedCount = 0, skippedCount = 0;
+
+  // 增量缓存：以目录绝对路径为命名空间，记录 相对路径 -> { hash, pageId }
+  const cache = loadCache();
+  const cacheKey = rootDir;
+  const ns = cache[cacheKey] || (cache[cacheKey] = {});
 
   // 根页：落点下同名则复用
   if (dryRun) {
@@ -244,6 +269,27 @@ async function main() {
     if (dryRun) { ok++; continue; }
     try {
       const md = fs.readFileSync(f, 'utf8');
+      const h = sha256(md);
+      const cached = ns[rp];
+      if (!created.has(pg.id) && !force) {
+        if (cached && cached.hash === h && cached.pageId === pg.id) {
+          // 增量跳过：页面已存在、缓存哈希一致、页面 id 未变 → 内容未变化
+          skippedCount++;
+          console.log(`SKIP ${rp}（内容未变化）`);
+          ok++;
+          continue;
+        }
+        if (!cached) {
+          // 首次建缓存：信任远端现状（同名页面已存在），仅记录哈希后跳过；
+          // 之后本地内容一旦变化即触发覆盖更新。需要强制全量重写时用 --force。
+          skippedCount++;
+          console.log(`SKIP ${rp}（首次建缓存，信任远端）`);
+          ns[rp] = { hash: h, pageId: pg.id };
+          ok++;
+          continue;
+        }
+        // 缓存存在但哈希不同 → 走覆盖更新
+      }
       const conv = N.markdownToBlocks(md, { resolveLink, baseDir: path.dirname(f) });
       const blocks = await N.resolveImages(conv, (src) => uploadImage(src, path.dirname(f)));
       if (!created.has(pg.id)) {
@@ -258,6 +304,7 @@ async function main() {
         const chunk = blocks.slice(s, s + 100);
         await withRetry(() => N.appendBlocks(pg.id, chunk, opts), `填充 ${rp}`);
       }
+      ns[rp] = { hash: h, pageId: pg.id }; // 同步成功后记录缓存
       ok++;
     } catch (e) {
       fail++; console.log(`ERR  ${rp} : ${e.message}`);
@@ -305,7 +352,8 @@ async function main() {
     }
   }
 
-  console.log(`\n=== 完成：md 成功 ${ok}，失败 ${fail}；新建 ${createdCount}，覆盖更新 ${updatedCount}，复用 ${reusedCount} ===`);
+  saveCache(cache);
+  console.log(`\n=== 完成：md 成功 ${ok}，失败 ${fail}；新建 ${createdCount}，覆盖更新 ${updatedCount}，跳过(未变化) ${skippedCount}，复用 ${reusedCount} ===`);
   if (pageMap.has('.')) console.log('根页链接: ' + (pageMap.get('.').url || ''));
 }
 

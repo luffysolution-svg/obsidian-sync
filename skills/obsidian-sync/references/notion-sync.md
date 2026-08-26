@@ -63,7 +63,7 @@ node scripts/notion_api.cjs import-md --parent <page_id> --title "<标题>" --fi
 ### 3.2 一键目录同步（推荐）
 
 ```powershell
-node scripts/sync_vault_to_notion.cjs --page <landing_page_id> --dir "<本地目录>" [--title <根页标题>] [--dry-run]
+node scripts/sync_vault_to_notion.cjs --page <landing_page_id> --dir "<本地目录>" [--title <根页标题>] [--dry-run] [--with-orphans] [--force]
 ```
 
 流程：
@@ -71,7 +71,15 @@ node scripts/sync_vault_to_notion.cjs --page <landing_page_id> --dir "<本地目
 1. 递归扫描（跳过 `.` 开头隐藏文件/目录）。
 2. **阶段一**：建页面树 —— 根页 → 目录页 → md 页，记录「相对路径 → page id/url」。
 3. **阶段二**：逐 md 转 blocks 填充；`[[wikilink]]` 解析成已建页面的 Notion 链接；`![](图)` / `![[图]]` 内联上传成 image 块。
-4. **孤儿附件**：未被任何 md 引用的本地文件，追加到其目录页的「附件」分区（`--skip-orphans` 关闭）。
+4. **孤儿附件**：未被任何 md 引用的本地文件，追加到其目录页的「附件」分区（`--skip-orphans` 关闭；仅新建页面或显式 `--with-orphans` 时上传）。
+
+**增量跳过（v1.5.0+，解决全量重写慢）**：
+
+- 脚本维护内容哈希缓存 `~/.config/obsidian-sync/notion-cache.json`（按同步目录绝对路径分命名空间，记录「相对路径 → { sha256, pageId }」）。
+- 页面已存在且缓存哈希与本地 md 一致、页面 id 未变 → **整页跳过**（`SKIP 内容未变化`），不做任何 API 写操作；仅哈希变化的页面才「清空旧块重填」（`UPD`）。
+- **首次运行**（缓存为空）：对已存在的同名页面**信任远端现状**，只记录哈希后跳过（避免首次运行全量重写耗时 10-30 分钟）；需要强制全量重写时加 `--force`。
+- 删除旧块已改为**并发 3**（原逐块串行），配合 Notion 3 req/s 限流的 429 退避重试。
+- 实测：37 篇笔记全量重写约 10-30 分钟 → 优化后未变化重跑仅需数秒，只重写改动页。
 
 ### 3.3 markdown → blocks 支持度
 
@@ -113,12 +121,14 @@ Notion 有公开链接：`createPage` 返回的 `url`（`https://www.notion.so/<
 ## 6. 失败与兜底
 
 - `object:"error", status:401` → token 无效/被删；重走 `notion_setup.cjs`。
+- `getaddrinfo ENOTFOUND api.notion.com`（实测偶发）→ 本机 DNS 解析失败，重试；或显式 `--proxy http://127.0.0.1:10809`（v2rayN HTTP）/ `--proxy socks5://127.0.0.1:10808`。
 - `status:403` → integration 没连接目标页面；让用户在页面「… → Connections」里添加该 integration。
 - `status:429` → 触发限流（3 req/s），脚本已带退避重试；仍频繁则降低并发、串行。
 - 文件上传 403/超时 → 确认代理可达 `api.notion.com`（`/v1/file_uploads` 同域，无需额外放行）。上传分两步：`POST /v1/file_uploads` 建对象 → `POST .../send`（`multipart/form-data`，文件在 `file` 字段）；不要改成 PUT 原始字节。
 - **幂等覆盖更新（v1.4.0+）**：`sync_vault_to_notion.cjs` 默认「同名页面存在则覆盖更新内容」（按标题找子页面 → 清空旧子块 → 重填，保留页面 URL），重复运行不产生重复页；本地笔记更新后重跑即可同步。查找子页面优先列父页子块（强一致），搜索索引延迟时不会误判。
+- **增量跳过（v1.5.0+）**：哈希缓存（见 §3.2）跳过未变化页面；`--force` 强制全量重写。删除块并发 3。
 - **归档/删除**：子页面可用 `PATCH /pages/{id} {in_trash:true}` 归档（`archive-page` 子命令）；**workspace 级顶层页面 API 不支持归档/删除**，只能进 Notion 客户端手动删。脚本同步时建议把根页建在某个普通页面下，便于整树归档。
-- 图片若为超大文件（`single_part` 上限 20MB）→ 提示改外链或压缩；更大文件走 `multi_part`。
+- **大附件（实测）**：`uploadFile` 仅实现 `single_part`（上限 20MB），37MB mp4 实测无法上传；需压缩或改外链（`multi_part` 未实现）。嵌套在无 md 的 `assets/` 子目录下的附件会因「父目录页缺失」被跳过——把附件放到有 md 的目录，或先建对应目录页。
 
 ## 7. 限制
 
