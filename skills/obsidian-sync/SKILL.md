@@ -1,4 +1,4 @@
----
+﻿---
 name: obsidian-sync
 version: 1.6.1
 description: "把 Obsidian 笔记（Markdown + 附件）单向同步到飞书云文档/知识库、腾讯 ima 知识库和 Notion。自动检测并安装 lark-cli 与所需技能，飞书走设备流二维码登录，ima 走 Client ID/API Key、Notion 走 Internal Token 引导配置；探测目标已有结构，询问落点，支持目录层级、本地图片与附件导入，完成后校验并回传结果。跨平台（Windows/macOS/Linux）。"
@@ -177,3 +177,4 @@ node scripts/sync_notion_to_obsidian.cjs --page <page_id> --out <vault目录> --
 - [`scripts/sync_feishu_to_obsidian.cjs`](scripts/sync_feishu_to_obsidian.cjs) — 飞书 → Obsidian 反向导入（图片本地化）
 - [`scripts/sync_notion_to_obsidian.cjs`](scripts/sync_notion_to_obsidian.cjs) — Notion → Obsidian 反向导入（blocks→md + 图片本地化）
 - [`scripts/env_check.ps1`](scripts/env_check.ps1) / [`scripts/env_check.sh`](scripts/env_check.sh) — 环境检测
+

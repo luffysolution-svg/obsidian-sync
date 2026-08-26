@@ -2,6 +2,8 @@
 
 Obsidian 里的「附件」分两类，处理方式在飞书、ima、Notion 上各不相同。先识别，再按目标平台处理。
 
+> 反向方向（飞书 / Notion → Obsidian 导入）的附件处理：图片自动本地化到 vault 附件目录（`sync_feishu_to_obsidian.cjs` / `sync_notion_to_obsidian.cjs`），详见 SKILL.md「飞书 / Notion → Obsidian 反向导入」章节。
+
 ## 1. 识别 vault 内的附件
 
 在目标笔记目录里扫描非 `.md` 文件：

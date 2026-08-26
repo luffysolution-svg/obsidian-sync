@@ -184,7 +184,7 @@ lark-cli docs +fetch --doc "<docx url 或 token>"
 
 ## 8. 飞书 → Obsidian 反向导入（v1.6.0，实验性）
 
-一键脚本：`sync_feishu_to_obsidian.cjs`（见 SKILL.md「飞书 → Obsidian 反向导入」）。核心链路：
+一键脚本：`sync_feishu_to_obsidian.cjs`（见 SKILL.md「飞书 / Notion → Obsidian 反向导入」）。核心链路：
 
 ```powershell
 # 手动等效流程（Windows 示例）

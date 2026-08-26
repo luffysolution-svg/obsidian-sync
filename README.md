@@ -124,7 +124,9 @@ skills/obsidian-sync/
     ├── sync_vault_to_ima.cjs          # ima 一键目录同步
     ├── notion_setup.cjs               # Notion 凭证检测/配置/验证
     ├── notion_api.cjs                 # Notion API 封装 + markdown→blocks
-    └── sync_vault_to_notion.cjs       # Notion 一键目录同步
+    ├── sync_vault_to_notion.cjs       # Notion 一键目录同步
+    ├── sync_feishu_to_obsidian.cjs    # 飞书 → Obsidian 反向导入（图片本地化）
+    └── sync_notion_to_obsidian.cjs    # Notion → Obsidian 反向导入（blocks→md）
 ```
 
 ## 边界与限制
