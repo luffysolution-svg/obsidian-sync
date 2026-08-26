@@ -38,6 +38,13 @@ npx skills add luffysolution-svg/obsidian-sync -g -y
 | Pi | `~/.pi/agent/skills/` |
 | Hermes | `~/.hermes/skills/` |
 
+### 方式三：npm 包（可选）
+
+```bash
+npm i -g obsidian-sync-skill
+npx skills experimental_sync -y   # 从 node_modules 同步到 agent 目录
+```
+
 ## 使用
 
 Agent 加载 skill 后，直接说「把 `F:\个人知识库\素材\文章` 同步到飞书 / ima / Notion」即可。skill 会引导完成：
@@ -81,6 +88,29 @@ skills/obsidian-sync/
 - **ima 图片不内嵌**：作为独立知识条目（media_type 9），不保留正文内联位置。
 - **Notion 无覆盖写**：API 无法按标题幂等更新，重复同步会新增同名页。
 - **Notion 需代理（国内）**：`api.notion.com` 被墙，走 `--proxy` / `NOTION_PROXY`。
+
+## 发布流程（维护者）
+
+每次代码更新，**npx / npm / Release 包三渠道自动同步最新版本**（GitHub Actions 工作流 `.github/workflows/release.yml`）：
+
+```bash
+# 1. 改代码并提交
+git add -A && git commit -m "feat/fix: ..."
+# 2. bump 版本并打 tag（自动更新 package.json 版本号）
+npm version patch -m "chore: release v%s"    # 或 minor / major
+# 3. 推送（含 tag）
+git push && git push --tags
+```
+
+推送 `vX.Y.Z` tag 后，Actions 自动完成：
+
+| 渠道 | 动作 |
+|---|---|
+| **npx** | `npx skills add luffysolution-svg/obsidian-sync` 始终拉取 main 分支最新代码（push 即生效） |
+| **npm** | 自动 `npm publish`（需要仓库配置 `NPM_TOKEN` secret；未配置则跳过 npm，其余照常） |
+| **Release 包** | 自动打包 `obsidian-sync-vX.Y.Z.zip` 并创建 GitHub Release |
+
+> **版本一致性校验**：Actions 会校验 tag 与 `package.json` 版本一致，不一致直接失败（避免 tag 与包版本错位）。
 
 ## License
 

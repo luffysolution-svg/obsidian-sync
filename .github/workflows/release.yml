@@ -1,0 +1,54 @@
+name: release
+
+# 三渠道自动发版：npx（GitHub main 分支）+ npm（npm publish）+ Release 包（zip）
+# 触发方式：推送 vX.Y.Z tag（推荐流程见 README「发布流程」）
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify version matches tag
+        run: |
+          ver="$(node -p "require('./package.json').version")"
+          tag="${GITHUB_REF#refs/tags/}"
+          echo "package.json version: ${ver} | tag: ${tag}"
+          if [ "${tag}" != "v${ver}" ]; then
+            echo "::error::package.json version (${ver}) 与 tag (${tag}) 不一致。请先 bump 版本：npm version patch/minor/major"
+            exit 1
+          fi
+
+      - name: Build release zip
+        run: |
+          ver="$(node -p "require('./package.json').version")"
+          mkdir -p dist
+          (cd skills && zip -r "../dist/obsidian-sync-v${ver}.zip" obsidian-sync)
+          ls -la dist
+          echo "zip: dist/obsidian-sync-v${ver}.zip"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/obsidian-sync-v*.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+      - name: Publish to npm
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish
