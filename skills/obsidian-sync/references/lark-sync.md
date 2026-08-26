@@ -181,3 +181,20 @@ lark-cli docs +fetch --doc "<docx url 或 token>"
 - **上传大小限制（实测）**：`drive +upload` 对 >20MB 文件报 `quota_exceeded / file size beyond limit`（code 1061043，走 multipart 也失败）；37MB mp4 实测无法上传。大附件需压缩到 20MB 内或改用外链。
 - **并发冲突**：报 `232140101 / 232140100 / 233523001` 时改串行 + 间隔几秒重试，最多 3 次。
 - **lark-cli 进度信息走 stderr**：`2>&1` 混流会污染 JSON 解析（`node.exe : ...` 前缀），脚本里解析 JSON 前用 `2>$null` 或只取 stdout。
+
+## 8. 飞书 → Obsidian 反向导入（v1.6.0，实验性）
+
+一键脚本：`sync_feishu_to_obsidian.cjs`（见 SKILL.md「飞书 → Obsidian 反向导入」）。核心链路：
+
+```powershell
+# 手动等效流程（Windows 示例）
+lark-cli drive +export --url "<docx链接>" --file-extension markdown --as user   # 1. 导出 md
+# 2. 解析 md 中 internal-api-drive-stream.feishu.cn 图片 URL，逐个 GET 下载到 <vault>/assets/
+# 3. 引用改写为 ![](assets/image-xx.png)；删除 <title> 首行；存入 vault
+```
+
+实测要点：
+
+- **内链图片可直接下载**：导出 markdown 里的图片 URL 带 `authcode`（一次性凭证），导出后立即 GET 返回 200（`Content-Type: image/png`），无需 cookie/额外授权；过期后失效，所以「导出 → 下载」必须串行紧接（脚本已内置）。
+- 图片默认存**同目录 `assets/`**（Obsidian 惯例附件夹），`--attach-dir` 可改。
+- 公式块导出为文本（飞书侧限制）；`drive +export` 支持 `--file-extension markdown`（另支持 docx/pdf/xlsx/csv/pptx）。

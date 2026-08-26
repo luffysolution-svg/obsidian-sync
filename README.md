@@ -9,6 +9,7 @@
 - **增量同步 + 覆盖更新（v1.4.0）**：重复同步不产生重复条目；飞书 / Notion 支持已存在内容覆盖更新（保留链接），ima 支持查重跳过已存在条目
 - **Notion 增量秒级跳过（v1.5.0）**：内容哈希缓存——未变化的页面整页跳过，只重写改动页；全量重写 10-30 分钟 → 未变化重跑数秒（`--force` 可强制全量）
 - **清理/回滚同步产物（v1.5.1）**：飞书 `drive +delete`、Notion `--clean` 递归归档整棵页面树、ima 客户端手动删——均有文档化命令
+- **飞书 → Obsidian 反向导入（v1.6.0）**：`sync_feishu_to_obsidian.cjs` 一键把飞书 docx 导入 vault——正文标准 markdown + **图片自动本地化到同目录 assets/**（下载飞书时效内链为本地文件，引用改写为相对路径），支持单篇/批量递归
 - 跨平台（Windows / macOS / Linux）
 
 ## 安装
@@ -79,6 +80,22 @@ Agent 加载 skill 后，直接说「把 `F:\个人知识库\素材\文章` 同�
 | **飞书** | `lark-cli drive +delete --file-token <token> --type folder\|docx --as user --yes`（删文件夹递归删内容；high-risk 需 `--yes`） |
 | **Notion** | `node scripts/sync_vault_to_notion.cjs --page <landing_id> --dir <本地目录> --clean`（递归归档根页树 + 清增量缓存；workspace 顶层页需客户端手动删） |
 | **ima** | API 无删除端点（`delete_*` 404），客户端手动删 |
+
+## 飞书 → Obsidian 反向导入（v1.6.0，实验性）
+
+把飞书在线文档导入本地 Obsidian vault，图片自动本地化（不再依赖飞书时效内链）：
+
+```bash
+# 单篇
+node skills/obsidian-sync/scripts/sync_feishu_to_obsidian.cjs --url "<飞书docx链接或token>" --out "<vault目录>"
+
+# 批量（递归子文件夹）
+node skills/obsidian-sync/scripts/sync_feishu_to_obsidian.cjs --folder "<folder_token>" --out "<vault目录>"
+```
+
+- 正文：`lark-cli drive +export --file-extension markdown`（标题/表格/代码块/链接完整）
+- 图片：导出后立即下载内链图片 → 存同目录 `assets/`（`--attach-dir` 可改）→ 引用改写为 `![](assets/image-xx.png)`
+- 同名文档自动 `-2/-3` 后缀；shortcut/原生文件跳过；公式块飞书导出为文本（飞书侧限制）
 
 ## 依赖
 
