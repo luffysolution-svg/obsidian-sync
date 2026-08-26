@@ -1,7 +1,8 @@
 name: release
 
-# 双渠道自动发版：npx（GitHub main 分支）+ Release 包（zip）
+# 三渠道自动发版：npx（GitHub main 分支）+ npm（npm publish）+ Release 包（zip）
 # 触发方式：推送 vX.Y.Z tag（推荐流程见 README「发布流程」）
+# 前置：仓库需配置 NPM_TOKEN secret（npm 账号 publish 权限的 token）
 on:
   push:
     tags:
@@ -20,6 +21,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          registry-url: https://registry.npmjs.org
 
       - name: Verify version matches tag
         run: |
@@ -45,3 +47,9 @@ jobs:
           files: dist/obsidian-sync-v*.zip
           generate_release_notes: true
           fail_on_unmatched_files: true
+
+      - name: Publish to npm
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish
