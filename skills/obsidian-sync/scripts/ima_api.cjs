@@ -152,6 +152,9 @@ async function importFile({ kb, folder, file, mediaType }) {
   const ext = path.extname(file).replace(/^\./, '');
   const contentType = contentTypeFromExt(ext);
   const buffer = fs.readFileSync(file);
+  // 未显式传 media_type 时按扩展名推断；识别不了立即报错（缺字段会导致 add_knowledge 返回 220001 参数错误）
+  const mt = mediaType != null ? mediaType : mediaTypeFromExt(ext);
+  if (mt == null) throw new Error(`无法识别 media_type（扩展名: ${ext}），请显式传 --media-type`);
 
   const cm = await postJson(`${KB}/create_media`, {
     file_name: name,
@@ -169,7 +172,7 @@ async function importFile({ kb, folder, file, mediaType }) {
   await cosUpload(cred, cred.cos_key, buffer, contentType);
 
   const ak = await postJson(`${KB}/add_knowledge`, {
-    media_type: mediaType,
+    media_type: mt,
     media_id: mediaId,
     title: name,
     knowledge_base_id: kb,
