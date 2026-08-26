@@ -1,6 +1,6 @@
 ---
 name: obsidian-sync
-version: 1.5.0
+version: 1.5.1
 description: "把 Obsidian 笔记（Markdown + 附件）单向同步到飞书云文档/知识库、腾讯 ima 知识库和 Notion。自动检测并安装 lark-cli 与所需技能，飞书走设备流二维码登录，ima 走 Client ID/API Key、Notion 走 Internal Token 引导配置；探测目标已有结构，询问落点，支持目录层级、本地图片与附件导入，完成后校验并回传结果。跨平台（Windows/macOS/Linux）。"
 metadata:
   requires:
@@ -75,6 +75,18 @@ metadata:
 - 最终回传表格：`本地路径 | 目标位置 | 标题 | 链接/ID | 状态`。
 - 批量中途失败：保留已成功的，单独列出失败项 + 重试命令，不整批回滚。
 
+## 清理 / 回滚同步产物（v1.5.1+）
+
+用户要「删掉 / 清理 / 回滚」之前同步的内容时，按平台删除（**均为破坏性操作，先确认再执行**）：
+
+| 平台 | 删除方式 | 命令 | 说明 |
+|---|---|---|---|
+| **飞书** | `drive +delete`（移入回收站） | `lark-cli drive +delete --file-token <folder或docx token> --type folder\|docx --as user --yes` | high-risk 操作需 `--yes`；删除异步、CLI 自动轮询；删文件夹递归删除其中全部内容 |
+| **Notion** | `--clean` 递归归档（移入回收站） | `node scripts/sync_vault_to_notion.cjs --page <landing_id> --dir <本地目录> --clean` | 先归档叶子页再父级、最后根页，并清除增量缓存；只归档 landing 下的同名根页树，**workspace 级顶层 landing 页 API 删不了，需客户端手动删** |
+| **ima** | 无 API 删除端点 | 客户端手动删 | `delete_*` 均 404（实测） |
+
+> 飞书/Notion 的删除都是**移入回收站**（可恢复），不是物理删除；ima 客户端删除同理。删除前如不确定落点，先 `drive files list` / `search --type page` 探测确认。
+
 ## 快速命令速查
 
 ```powershell
@@ -84,6 +96,7 @@ lark-cli wiki +space-list                                        # 知识库空�
 lark-cli drive +import --file x.md --type docx --folder-token <t> # 导入
 lark-cli docs +media-insert --file img.png --doc <url> --type image # 插图片
 lark-cli docs +update --doc <url> --command overwrite --doc-format markdown --content @x.md # 覆盖更新已存在文档（保留链接；多行内容务必用 @file，直接传 --content 会被拆成位置参数报错）
+lark-cli drive +delete --file-token <t> --type folder --yes    # 删除文件夹/docx（移入回收站；high-risk 需 --yes）
 
 # ima
 node scripts/ima_setup.cjs                                       # 凭证检测 / 配置
@@ -99,6 +112,7 @@ node scripts/notion_api.cjs search --type page                    # 页面列表
 node scripts/notion_api.cjs import-md --parent <id> --file x.md   # 单篇导入
 node scripts/sync_vault_to_notion.cjs --page <id> --dir <目录>    # 一键目录同步（幂等：同名页面覆盖更新，不产生重复页）
 node scripts/sync_vault_to_notion.cjs --page <id> --dir <目录> --force # 忽略增量缓存，强制全量重写（首次运行默认信任远端建缓存）
+node scripts/sync_vault_to_notion.cjs --page <id> --dir <目录> --clean # 清理：递归归档该目录对应的整棵页面树 + 清增量缓存
 ```
 
 > **Notion 增量同步（v1.5.0+）**：`sync_vault_to_notion.cjs` 默认带内容哈希缓存（`~/.config/obsidian-sync/notion-cache.json`）——页面已存在且本地 md 未变化 → 整页跳过（秒级）；仅本地有改动的页面才「清空旧块重填」覆盖更新（保留 URL、无重复页）。首次运行对已存在页面信任远端现状并建缓存；需要强制全量重写时加 `--force`。

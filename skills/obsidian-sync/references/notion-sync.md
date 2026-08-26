@@ -81,7 +81,19 @@ node scripts/sync_vault_to_notion.cjs --page <landing_page_id> --dir "<本地目
 - 删除旧块已改为**并发 3**（原逐块串行），配合 Notion 3 req/s 限流的 429 退避重试。
 - 实测：37 篇笔记全量重写约 10-30 分钟 → 优化后未变化重跑仅需数秒，只重写改动页。
 
-### 3.3 markdown → blocks 支持度
+### 3.3 清理同步产物（--clean，v1.5.1+）
+
+删除/回滚之前同步的整棵页面树（先归档叶子页 → 目录页 → 根页，全部移入回收站），并清除该目录的增量缓存：
+
+```powershell
+node scripts/sync_vault_to_notion.cjs --page <landing_page_id> --dir "<本地目录>" --clean
+```
+
+- 只清理 landing 下与目录名同名的**根页**及其子树；找不到根页时报「已删除或从未同步」并安全退出。
+- 归档 = 移入回收站（可恢复），非物理删除；`workspace` 级顶层 landing 页本身 API 不支持归档/删除，需客户端手动删（建议把根页建在普通页面下便于整树清理）。
+- 清理后增量缓存自动清除，下次同步会重建全部页面。
+
+### 3.4 markdown → blocks 支持度
 
 | Markdown | Notion 块 |
 | --- | --- |

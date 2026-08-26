@@ -114,8 +114,23 @@ Remove-Item "x_update.md" -Force
 
 ⚠️ `overwrite` 会清空文档后重写，**丢失图片与评论**；本地图片需重新 `docs +media-insert`。备选方案：`drive +delete` 删旧 + 重新 `+import`（会换新链接）。已实测覆盖更新成功、链接不变（`result: success`，`revision_id` 递增）。
 
-## 4. 图片与附件
+### 3.6 删除同步产物（清理/回滚，v1.5.1+）
 
+用户要删掉之前同步的内容时：
+
+```powershell
+# 删单个 docx / 文件
+lark-cli drive +delete --file-token <docx 或 file token> --type docx --as user --yes
+
+# 删整个文件夹（递归删除其中全部文档/子文件夹）
+lark-cli drive +delete --file-token <folder token> --type folder --as user --yes
+```
+
+- high-risk 操作必须 `--yes`；删除是异步任务，CLI 自动轮询（`ready:true, status:success` 完成）。
+- 删除 = 移入回收站（可恢复），非物理删除。
+- token 获取：`drive files list --folder-token <父token>` 拿 `token`/`type`。
+
+## 4. 图片与附件
 见 `references/attachments.md`。要点（实测）：
 
 - **外链图片（HTTP/HTTPS）**：`drive +import` 直接渲染成 `<img>` 块，无需额外处理。

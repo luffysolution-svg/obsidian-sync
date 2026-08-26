@@ -8,6 +8,7 @@
 - 支持目录层级、多篇批量、本地图片、附件导入；完成后校验并回传结果
 - **增量同步 + 覆盖更新（v1.4.0）**：重复同步不产生重复条目；飞书 / Notion 支持已存在内容覆盖更新（保留链接），ima 支持查重跳过已存在条目
 - **Notion 增量秒级跳过（v1.5.0）**：内容哈希缓存——未变化的页面整页跳过，只重写改动页；全量重写 10-30 分钟 → 未变化重跑数秒（`--force` 可强制全量）
+- **清理/回滚同步产物（v1.5.1）**：飞书 `drive +delete`、Notion `--clean` 递归归档整棵页面树、ima 客户端手动删——均有文档化命令
 - 跨平台（Windows / macOS / Linux）
 
 ## 安装
@@ -68,6 +69,16 @@ Agent 加载 skill 后，直接说「把 `F:\个人知识库\素材\文章` 同�
 | **飞书** | 同名 docx 整文覆盖更新（链接不变；图片/评论会丢，本地图片需重新插入）。多行内容用 `@file` 传，避免被拆成位置参数 | `lark-cli docs +update --doc <url> --command overwrite --doc-format markdown --content @x.md` |
 | **ima** | `--incremental`：新增自动导入、已存在的跳过（不重复）；**内容变更需 ima 客户端手动删旧后重导**（API 无更新端点） | `node scripts/sync_vault_to_ima.cjs --kb <id> --dir <目录> --incremental` |
 | **Notion** | 同名页面自动覆盖更新（URL 不变，无重复页）；v1.5.0+ 哈希缓存跳过未变化页面，仅改动页重写 | `node scripts/sync_vault_to_notion.cjs --page <id> --dir <目录>`（加 `--force` 强制全量） |
+
+## 清理 / 回滚同步产物（v1.5.1）
+
+删掉之前同步的内容（均为**移入回收站**，可恢复）：
+
+| 平台 | 命令 |
+|---|---|
+| **飞书** | `lark-cli drive +delete --file-token <token> --type folder\|docx --as user --yes`（删文件夹递归删内容；high-risk 需 `--yes`） |
+| **Notion** | `node scripts/sync_vault_to_notion.cjs --page <landing_id> --dir <本地目录> --clean`（递归归档根页树 + 清增量缓存；workspace 顶层页需客户端手动删） |
+| **ima** | API 无删除端点（`delete_*` 404），客户端手动删 |
 
 ## 依赖
 

@@ -115,6 +115,32 @@ async function clearChildren(pageId, opts) {
   return blocks.length;
 }
 
+// ---------- 清理（--clean）：递归归档整棵同步树（先叶子后父级，最后根页），并清除增量缓存 ----------
+async function cleanTree(landingPage, rootName, cache, cacheKey, opts) {
+  const existing = await findChildByTitle(landingPage, rootName, opts);
+  if (!existing) {
+    console.error('未找到根页「' + rootName + '」（已删除或从未同步），无需清理');
+    return;
+  }
+  let count = 0;
+  async function archiveRec(id, label, depth) {
+    const children = await listAllChildren(id, opts);
+    for (const b of children) {
+      if (b.type === 'child_page' || b.type === 'child_database') {
+        await archiveRec(b.id, (b.child_page && b.child_page.title) || b.id, depth + 1);
+      }
+    }
+    const r = await withRetry(() => N.archivePage(id, opts), '归档 ' + label);
+    if (isErr(r)) { console.error('归档失败 ' + label + ': ' + JSON.stringify(r.data)); return; }
+    count++;
+    console.log('ARCHIVED ' + '  '.repeat(depth) + label);
+  }
+  await archiveRec(existing.id, rootName, 0);
+  delete cache[cacheKey];
+  saveCache(cache);
+  console.log(`\n=== 清理完成：归档 ${count} 个页面（含根页，移入回收站），已清除该目录的增量缓存 ===`);
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const landingPage = argValue(args, '--page');
@@ -123,15 +149,27 @@ async function main() {
   const dryRun = args.includes('--dry-run');
   const withOrphans = args.includes('--with-orphans');
   const force = args.includes('--force');
+  const clean = args.includes('--clean');
   const proxy = argValue(args, '--proxy');
   const opts = proxy ? { proxy } : {};
 
   if (!landingPage || !dir) {
-    console.error('用法: node sync_vault_to_notion.cjs --page <page_id> --dir <本地目录> [--title <根页标题>] [--dry-run] [--with-orphans] [--force] [--proxy socks5://host:port]');
+    console.error('用法: node sync_vault_to_notion.cjs --page <page_id> --dir <本地目录> [--title <根页标题>] [--dry-run] [--with-orphans] [--force] [--clean] [--proxy socks5://host:port]');
+    console.error('  --clean  清理（非同步）：递归归档该目录对应的整棵 Notion 页面树（先叶子后父级，最后根页），并清除增量缓存；workspace 级顶层 landing 页需客户端手动删');
     process.exit(1);
   }
   const rootDir = path.resolve(dir);
   if (!fs.existsSync(rootDir)) { console.error('目录不存在: ' + rootDir); process.exit(1); }
+
+  const rootName = rootTitle || path.basename(rootDir);
+  const cache = loadCache();
+  const cacheKey = rootDir;
+
+  // --clean 模式：只清理，不同步
+  if (clean) {
+    await cleanTree(landingPage, rootName, cache, cacheKey, opts);
+    return;
+  }
 
   // 1. 扫描
   const mdFiles = [], otherFiles = [];
@@ -146,8 +184,6 @@ async function main() {
   })(rootDir);
   console.log(`发现 ${mdFiles.length} 个 md，${otherFiles.length} 个附件/其它文件${dryRun ? '（dry-run）' : ''}`);
 
-  const rootName = rootTitle || path.basename(rootDir);
-
   // 相对路径统一用 / 分隔
   const rel = (p) => path.relative(rootDir, p).split(path.sep).join('/');
 
@@ -157,9 +193,7 @@ async function main() {
   const created = new Set(); // 本次新建的页面 id（用于孤儿附件判断）
   let createdCount = 0, updatedCount = 0, reusedCount = 0, skippedCount = 0;
 
-  // 增量缓存：以目录绝对路径为命名空间，记录 相对路径 -> { hash, pageId }
-  const cache = loadCache();
-  const cacheKey = rootDir;
+  // 增量缓存命名空间（cache/cacheKey 已在 main 开头加载）
   const ns = cache[cacheKey] || (cache[cacheKey] = {});
 
   // 根页：落点下同名则复用
