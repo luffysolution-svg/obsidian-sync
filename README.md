@@ -6,6 +6,7 @@
 - **ima**：`ima.qq.com` OpenAPI（Client ID / API Key，含首次使用引导配置）
 - **Notion**：官方 API（Internal Token，含首次使用引导配置；国内需代理，脚本内置 SOCKS5/HTTP 隧道）
 - 支持目录层级、多篇批量、本地图片、附件导入；完成后校验并回传结果
+- **增量同步 + 覆盖更新（v1.4.0）**：重复同步不产生重复条目；飞书 / Notion 支持已存在内容覆盖更新（保留链接），ima 支持查重跳过已存在条目
 - 跨平台（Windows / macOS / Linux）
 
 ## 安装
@@ -53,7 +54,19 @@ Agent 加载 skill 后，直接说「把 `F:\个人知识库\素材\文章` 同�
 环境检测 → 认证/凭证 → 探测落点 → 导入（层级/图片/附件）→ 校验 → 回传
 ```
 
-### 依赖
+> **重复运行是安全的（v1.4.0+）**：Notion / 飞书同名内容覆盖更新，ima 加 `--incremental` 跳过已存在条目；不会产生重复内容。
+
+## 更新已同步的笔记（v1.4.0）
+
+本地笔记修改后，重新同步即可：
+
+| 平台 | 重新同步行为 | 命令 |
+|---|---|---|
+| **飞书** | 同名 docx 整文覆盖更新（链接不变；图片/评论会丢，本地图片需重新插入） | `lark-cli docs +update --doc <url> --command overwrite --doc-format markdown --content "<md>"` |
+| **ima** | `--incremental`：新增自动导入、已存在的跳过（不重复）；**内容变更需 ima 客户端手动删旧后重导**（API 无更新端点） | `node scripts/sync_vault_to_ima.cjs --kb <id> --dir <目录> --incremental` |
+| **Notion** | 同名页面自动覆盖更新（URL 不变，无重复页） | `node scripts/sync_vault_to_notion.cjs --page <id> --dir <目录>` |
+
+## 依赖
 
 - **Node.js ≥ 18**（脚本用全局 `fetch`）
 - **飞书**：`npm i -g @larksuite/cli`（首次使用需设备流二维码登录）
@@ -84,9 +97,11 @@ skills/obsidian-sync/
 ## 边界与限制
 
 - **单向同步**：Obsidian 是源，飞书/ima/Notion 是输出；不做双向合并。
+- **ima 无覆盖更新**：API 无更新内容/删除端点（仅 `rename_knowledge` 存在），内容变更需在 ima 客户端手动删旧条目后重新导入；`--incremental` 可跳过已存在条目避免重复。
 - **ima 无删除端点**：误建/测试产物只能在 ima 客户端手动删。
 - **ima 图片不内嵌**：作为独立知识条目（media_type 9），不保留正文内联位置。
-- **Notion 无覆盖写**：API 无法按标题幂等更新，重复同步会新增同名页。
+- **Notion 幂等覆盖更新**：同名页面覆盖更新内容（保留 URL，不产生重复页）；workspace 级顶层页面 API 不支持归档/删除，只能客户端手动删。
+- **飞书覆盖更新**：`docs +update --command overwrite` 整文重写（保留文档链接；图片/评论会丢，本地图片需重新插入）。
 - **Notion 需代理（国内）**：`api.notion.com` 被墙，走 `--proxy` / `NOTION_PROXY`。
 
 ## 发布流程（维护者）
@@ -111,6 +126,8 @@ git push && git push --tags
 | **Release 包** | 自动打包 `obsidian-sync-vX.Y.Z.zip` 并创建 GitHub Release |
 
 > **版本一致性校验**：Actions 会校验 tag 与 `package.json` 版本一致，不一致直接失败（避免 tag 与包版本错位）。
+>
+> **兜底**：若推送 tag 后 Actions 未触发（偶发），手动执行同款步骤：打包 `obsidian-sync-vX.Y.Z.zip` → `gh release create vX.Y.Z ... <zip>` → `npm publish`（仓库根目录）。
 
 ## License
 
