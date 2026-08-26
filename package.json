@@ -1,6 +1,6 @@
 ﻿{
   "name": "obsidian-sync-skill",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "description": "Obsidian 绗旇鍗曞悜鍚屾鍒伴涔?ima/Notion 鐨?Agent Skill锛圕laude Code / Codex / OpenCode / Pi / Hermes 绛夛級",
   "license": "MIT",
   "keywords": [
@@ -23,4 +23,5 @@
     "url": "git+https://github.com/luffysolution-svg/obsidian-sync.git"
   }
 }
+
 
